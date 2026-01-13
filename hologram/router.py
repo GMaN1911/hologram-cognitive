@@ -169,10 +169,9 @@ class HologramRouter:
             neighbors = set()
             neighbors.update(self.system.adjacency.get(current, set()))
 
-            # Incoming edges
-            for src in self.system.files.keys():
-                if current in self.system.adjacency.get(src, set()):
-                    neighbors.add(src)
+            # Incoming edges (use stored incoming_edges, not O(n²) scan)
+            if current in self.system.files:
+                neighbors.update(self.system.files[current].incoming_edges)
 
             for neighbor in neighbors:
                 if neighbor == file_path:

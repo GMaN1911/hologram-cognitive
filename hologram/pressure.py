@@ -100,66 +100,90 @@ def propagate_pressure(
     config: Optional[PressureConfig] = None
 ) -> Dict[str, float]:
     """
-    Propagate pressure along DAG edges.
-    
-    HOT files push pressure to their neighbors.
+    Propagate pressure along DAG edges using BFS with hop decay.
+
+    HOT files push pressure to their neighbors up to max_propagation_hops.
+    Pressure decays by flow_decay_per_hop ** hop_distance.
     Pressure is conserved: what flows out comes from the source.
-    
+
     Args:
         files: Dict of path → CognitiveFile
         adjacency: DAG adjacency (source → targets)
         edge_weights: Optional edge weights (source → target → weight)
         config: Pressure configuration
-    
+
     Returns:
         Dict of path → pressure delta from propagation
     """
     if config is None:
         config = PressureConfig()
-    
+
     deltas = defaultdict(float)
-    
+
+    # Find source files that can propagate
+    sources = []
     for path, file in files.items():
-        # Only HOT files propagate
         if config.hot_propagates:
             if file.raw_pressure < config.min_pressure_to_propagate:
                 continue
-        
-        outgoing = adjacency.get(path, set())
-        if not outgoing:
+        sources.append(path)
+
+    # BFS from each source with hop tracking
+    for source_path in sources:
+        if source_path not in adjacency or not adjacency[source_path]:
             continue
-        
-        # Calculate flow per edge
+
+        # BFS: (current_path, hop_distance, accumulated_flow)
         base_flow = config.edge_flow_rate
-        if len(outgoing) > 1:
-            # Divide flow among edges
-            base_flow /= len(outgoing)
-        
-        for target_path in outgoing:
-            if target_path not in files:
+        queue = [(source_path, 0, base_flow)]
+        visited = {source_path}
+
+        while queue:
+            current, hop, flow = queue.pop(0)
+
+            # Don't propagate beyond max hops
+            if hop >= config.max_propagation_hops:
                 continue
-            
-            # Apply edge weight if available
-            weight = 1.0
-            if edge_weights and path in edge_weights:
-                weight = edge_weights[path].get(target_path, 1.0)
-            
-            flow = base_flow * weight
-            
-            # Target receives pressure
-            deltas[target_path] += flow
-            
-            # Source loses pressure (conservation)
-            if config.enable_conservation:
-                deltas[path] -= flow
-    
+
+            outgoing = adjacency.get(current, set())
+            if not outgoing:
+                continue
+
+            # Divide flow among outgoing edges
+            flow_per_edge = flow / len(outgoing)
+
+            for target_path in outgoing:
+                if target_path not in files:
+                    continue
+
+                # Apply edge weight
+                weight = 1.0
+                if edge_weights and current in edge_weights:
+                    weight = edge_weights[current].get(target_path, 1.0)
+
+                # Apply hop decay
+                hop_decay = config.flow_decay_per_hop ** (hop + 1)
+                actual_flow = flow_per_edge * weight * hop_decay
+
+                # Target receives pressure
+                deltas[target_path] += actual_flow
+
+                # Source loses pressure (conservation)
+                if config.enable_conservation:
+                    deltas[source_path] -= actual_flow
+
+                # Continue BFS from this target (if not visited)
+                if target_path not in visited:
+                    visited.add(target_path)
+                    queue.append((target_path, hop + 1, actual_flow))
+
     # Apply deltas
     for path, delta in deltas.items():
         if path in files:
             old = files[path].raw_pressure
             files[path].raw_pressure = max(0.0, min(1.0, old + delta))
             files[path].pressure_bucket = quantize_pressure(files[path].raw_pressure)
-    
+
     return dict(deltas)
 
 

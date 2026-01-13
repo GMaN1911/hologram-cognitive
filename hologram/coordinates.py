@@ -4,7 +4,8 @@ Coordinate System for Hologram Cognitive
 Content-addressed system buckets + quantized pressure with toroidal topology.
 
 Key insight: Quantization creates intentional collisions = neighborhoods.
-Files with similar content hash to nearby buckets, becoming natural neighbors.
+Same content → same bucket (deterministic via SHA3).
+Bucket topology defines adjacency (not content similarity).
 """
 
 import hashlib
@@ -30,14 +31,14 @@ WARM_THRESHOLD = 20      # Buckets 20-39 = WARM
 def compute_system_bucket(path: str, content: str = "") -> int:
     """
     Compute content-addressed system bucket.
-    
+
     Same content → same bucket (deterministic).
-    Related content → nearby buckets (hash locality).
-    
+    Bucket collisions create neighborhoods by design (not semantic similarity).
+
     Args:
         path: File path (always included in hash)
         content: File content (optional, for true content-addressing)
-    
+
     Returns:
         Bucket index 0 to SYSTEM_BUCKETS-1
     """

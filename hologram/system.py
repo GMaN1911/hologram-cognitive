@@ -13,6 +13,7 @@ import time
 
 from .coordinates import (
     compute_system_bucket,
+    compute_content_signature,
     quantize_pressure,
     get_tier,
     SYSTEM_BUCKETS,
@@ -161,22 +162,22 @@ class CognitiveSystem:
     def add_file(self, path: str, content: str) -> CognitiveFile:
         """
         Add a file to the system.
-        
+
         Computes system bucket from content and discovers edges.
         """
         file = CognitiveFile(
             path=path,
             content=content,
-            content_signature=str(hash(content))[:8],
+            content_signature=compute_content_signature(content),
             system_bucket=compute_system_bucket(path, content),
             pressure_bucket=10,  # Start COLD
             raw_pressure=0.2,
         )
         self.files[path] = file
-        
+
         # Rebuild DAG with new file
         self._rebuild_dag()
-        
+
         return file
     
     def remove_file(self, path: str):
@@ -189,8 +190,8 @@ class CognitiveSystem:
         """Update a file's content (recomputes bucket and edges)."""
         if path in self.files:
             old_signature = self.files[path].content_signature
-            new_signature = str(hash(content))[:8]
-            
+            new_signature = compute_content_signature(content)
+
             if old_signature != new_signature:
                 # Content changed, update
                 file = self.files[path]

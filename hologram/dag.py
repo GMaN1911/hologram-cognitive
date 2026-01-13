@@ -243,28 +243,35 @@ def compute_edge_weights(
     return weights
 
 
-def find_strongly_connected(adjacency: Dict[str, Set[str]]) -> List[Set[str]]:
+def find_mutual_clusters(adjacency: Dict[str, Set[str]]) -> List[Set[str]]:
     """
-    Find strongly connected components (clusters of tightly related files).
-    
-    Files in the same SCC should probably co-activate as a group.
+    Find clusters of files with mutual (bidirectional) references.
+
+    NOTE: This is NOT true strongly connected components (SCC).
+    This finds sets of files that reference each other bidirectionally,
+    but does NOT guarantee that every node can reach every other node
+    in the component.
+
+    For real SCC, use Tarjan or Kosaraju algorithm.
+
+    Files in mutual clusters probably co-activate as a group.
     """
     # Simple implementation: files that mutually reference each other
     incoming = get_incoming_edges(adjacency)
     components = []
     visited = set()
-    
+
     for path in adjacency:
         if path in visited:
             continue
-        
-        # Find all files reachable in both directions
+
+        # Find all files reachable via mutual edges
         component = {path}
         queue = [path]
-        
+
         while queue:
             current = queue.pop(0)
-            
+
             # Check outgoing
             for target in adjacency.get(current, set()):
                 if target not in component:
@@ -272,11 +279,11 @@ def find_strongly_connected(adjacency: Dict[str, Set[str]]) -> List[Set[str]]:
                     if current in adjacency.get(target, set()):
                         component.add(target)
                         queue.append(target)
-        
+
         if len(component) > 1:
             components.append(component)
             visited.update(component)
-    
+
     return components
 
 
@@ -302,5 +309,5 @@ def summarize_dag(adjacency: Dict[str, Set[str]]) -> dict:
         'avg_outgoing': total_edges / len(adjacency) if adjacency else 0,
         'top_sources': [(p, len(t)) for p, t in by_outgoing[:5]],
         'top_targets': [(p, len(s)) for p, s in by_incoming[:5]],
-        'strongly_connected': find_strongly_connected(adjacency),
+        'mutual_clusters': find_mutual_clusters(adjacency),
     }
