@@ -32,6 +32,7 @@ from .pressure import (
     apply_activation,
     propagate_pressure,
     apply_decay,
+    redistribute_pressure,
     get_pressure_stats,
     PressureConfig,
 )
@@ -62,6 +63,7 @@ class CognitiveFile:
     # Metadata
     last_activated: int = 0
     activation_count: int = 0
+    last_resurrected: int = 0  # For toroidal decay cooldown
     created_at: float = field(default_factory=time.time)
     
     @property
@@ -340,7 +342,12 @@ def process_turn(
     
     # Apply decay
     apply_decay(system.files, system.current_turn, system.pressure_config)
-    
+
+    # Periodic pressure normalization to correct floating-point drift
+    # (Conservation property can degrade over many turns without this)
+    if system.current_turn % 100 == 0:
+        redistribute_pressure(system.files, system.pressure_config)
+
     # Get final context
     context = get_context(system)
     

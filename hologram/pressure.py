@@ -32,11 +32,17 @@ class PressureConfig:
     # Decay
     decay_rate: float = 0.85            # Multiply pressure by this each turn
     decay_immunity_turns: int = 2       # Don't decay recently activated files
-    
+
+    # Toroidal Decay (Experimental)
+    use_toroidal_decay: bool = False    # If true, pressure wraps instead of dying
+    resurrection_threshold: float = 0.01  # When pressure drops below this, wrap around
+    resurrection_pressure: float = 0.8    # Pressure level after resurrection (HOT)
+    resurrection_cooldown: int = 100      # Turns between resurrections per file
+
     # Conservation
     enable_conservation: bool = True    # If true, boosting drains from others
     total_pressure_budget: float = 10.0 # Total pressure in system (if conserved)
-    
+
     # Thresholds
     hot_propagates: bool = True         # Only HOT files propagate
     min_pressure_to_propagate: float = 0.8  # Minimum raw pressure to propagate
@@ -194,33 +200,57 @@ def apply_decay(
 ) -> Dict[str, float]:
     """
     Apply decay to all files.
-    
+
     Recently activated files are immune (decay_immunity_turns).
-    
+
+    Toroidal Decay Mode (Experimental):
+    When use_toroidal_decay=True, files that decay below resurrection_threshold
+    will "wrap around" and resurrect with high pressure (spaced repetition).
+    This implements curiosity-driven attention: forgotten memories resurface.
+
     Args:
         files: Dict of path → CognitiveFile
         current_turn: Current turn number
         config: Pressure configuration
-    
+
     Returns:
-        Dict of path → pressure delta from decay
+        Dict of path → pressure delta from decay (negative for normal decay,
+        large positive for resurrections)
     """
     if config is None:
         config = PressureConfig()
-    
+
     deltas = {}
-    
+
     for path, file in files.items():
         # Skip recently activated files
         turns_since_active = current_turn - file.last_activated
         if turns_since_active < config.decay_immunity_turns:
             continue
-        
+
         old = file.raw_pressure
+
+        # Standard linear decay
         file.raw_pressure *= config.decay_rate
+
+        # Toroidal resurrection (experimental)
+        if config.use_toroidal_decay:
+            # Check if pressure dropped below resurrection threshold
+            if file.raw_pressure < config.resurrection_threshold:
+                # Check cooldown to prevent rapid resurrection loops
+                turns_since_resurrection = current_turn - file.last_resurrected
+                if turns_since_resurrection >= config.resurrection_cooldown:
+                    # Resurrect: wrap around to HOT pressure
+                    file.raw_pressure = config.resurrection_pressure
+                    file.last_resurrected = current_turn
+                    # Delta will show large positive jump (resurrection event)
+                else:
+                    # Still in cooldown, clamp at threshold (don't go lower)
+                    file.raw_pressure = config.resurrection_threshold
+
         file.pressure_bucket = quantize_pressure(file.raw_pressure)
         deltas[path] = file.raw_pressure - old
-    
+
     return deltas
 
 

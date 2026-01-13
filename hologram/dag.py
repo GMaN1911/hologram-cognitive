@@ -28,10 +28,18 @@ class EdgeDiscoveryConfig:
     
     # Minimum length for partial matches (avoid false positives)
     min_part_length: int = 4
-    
+
+    # Generic terms to exclude (prevents "ghost edges" from common terms)
+    exclude_generic_terms: List[str] = field(default_factory=lambda: [
+        'utils', 'helpers', 'config', 'test', 'tests',
+        'init', 'main', 'index', 'common', 'base',
+        'core', 'types', 'models', 'views', 'data',
+        'lib', 'libs', 'tools', 'misc', 'temp',
+    ])
+
     # Custom patterns to match
     custom_patterns: List[str] = field(default_factory=list)
-    
+
     # Files to exclude from discovery
     exclude_patterns: List[str] = field(default_factory=lambda: [
         r'__pycache__',
@@ -90,6 +98,9 @@ def discover_edges(
         if config.use_partial_path:
             path_parts = target_path.replace('.md', '').replace('.py', '').split('/')
             for part in path_parts:
+                # Skip generic terms to avoid ghost edges
+                if part.lower() in config.exclude_generic_terms:
+                    continue
                 if len(part) >= config.min_part_length and part.lower() in content_lower:
                     edges.add(target_path)
                     break
@@ -100,8 +111,13 @@ def discover_edges(
         if config.use_keyword_parts:
             filename = Path(target_path).stem
             parts = re.split(r'[-_]', filename)
-            significant_parts = [p for p in parts if len(p) >= config.min_part_length]
-            
+            # Filter out short parts AND generic terms
+            significant_parts = [
+                p for p in parts
+                if len(p) >= config.min_part_length
+                and p.lower() not in config.exclude_generic_terms
+            ]
+
             if len(significant_parts) >= 2:
                 # All significant parts must match for multi-part names
                 if all(p.lower() in content_lower for p in significant_parts):
