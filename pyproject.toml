@@ -5,16 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hologram-cognitive"
 version = "0.1.0"
-description = "Content-addressed coordinate system for claude-cognitive context routing"
+description = "Pressure-based context routing with lighthouse re-anchoring for Claude Code"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Garret Sutherland", email = "gsutherland@mirrorethic.com"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -34,9 +33,9 @@ dev = [
 hologram-router = "hologram.router:main"
 
 [project.urls]
-Homepage = "https://github.com/GMaN1911/claude-cognitive"
-Documentation = "https://github.com/GMaN1911/claude-cognitive/tree/main/hologram-cognitive"
-Repository = "https://github.com/GMaN1911/claude-cognitive"
+Homepage = "https://github.com/GMaN1911/hologram-cognitive"
+Documentation = "https://github.com/GMaN1911/hologram-cognitive#readme"
+Repository = "https://github.com/GMaN1911/hologram-cognitive"
 
 [tool.setuptools.packages.find]
 include = ["hologram*"]
