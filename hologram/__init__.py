@@ -12,7 +12,7 @@ Based on concepts from "Hologram: The Physics of Information"
 Adapted for claude-cognitive by Garret Sutherland / MirrorEthic LLC
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .coordinates import (
     compute_system_bucket,
