@@ -127,7 +127,7 @@ Generic terms are now filtered during edge discovery, preventing ghost edges fro
 
 ---
 
-## Experimental Feature: Toroidal Decay
+## Production Feature: Toroidal Decay - "The Lighthouse"
 
 ### Motivation
 
@@ -136,26 +136,86 @@ Generic terms are now filtered during edge discovery, preventing ghost edges fro
 - Floor at 0.0 → files "die" and stay dead
 - Only way back: explicit user activation or neighbor propagation
 
-**Proposed Behavior (Toroidal Decay):**
-- Files decay normally until reaching `resurrection_threshold`
-- Then "wrap around" to `resurrection_pressure` (HOT tier)
+**New Behavior (Toroidal Decay - "The Lighthouse"):**
+- Files decay normally until reaching `resurrection_threshold` (0.05)
+- Then "wrap around" to `resurrection_pressure` (0.55 = WARM tier)
 - Implements spaced repetition: forgotten memories resurface
-- Cooldown prevents rapid resurrection loops
+- Cooldown prevents rapid resurrection loops (100 turns)
 
-### Design Question
+**Key Design Insight (from user feedback):**
+Original design resurrected to HOT (0.8), which **displaced active work**
+due to conservation. New design resurrects to WARM (0.55), providing
+**high visibility without disruption**.
 
-Is this **curiosity-driven attention** (bringing back old context) beneficial or just noise?
+Metaphor: A lighthouse beam that sweeps periodically, illuminating
+forgotten context without moving your ship. You can navigate toward
+it or ignore it - preserving user agency.
+
+### Design Evolution: Why WARM, Not HOT?
+
+**Original Design Problem (Resurrecting to HOT = 0.8):**
+
+When a file resurrects to HOT pressure, conservation physics kicks in:
+- Total pressure budget is fixed (10.0)
+- Adding pressure to resurrected file requires **draining from active files**
+- Result: Your current work (HOT files) gets cooled down
+
+Example:
+```
+Before Resurrection:
+- auth.md (currently working on): 1.0 (HOT)
+- database.md (active reference): 0.9 (HOT)
+- old-perf.md (forgotten): 0.01 (dead)
+
+After Resurrection to HOT (0.8):
+- auth.md: 0.92 (cooled down!)
+- database.md: 0.82 (cooled down!)
+- old-perf.md: 0.80 (resurrected)
+
+Problem: Active work displaced by resurrection
+```
+
+**Lighthouse Design Solution (Resurrecting to WARM = 0.55):**
+
+Resurrection to WARM provides visibility without disruption:
+- Resurrected files appear in context but don't dominate
+- Conservation impact is gentle (less pressure to drain)
+- User can **choose** to navigate toward the lighthouse beacon
+
+Example:
+```
+Before Resurrection:
+- auth.md (currently working on): 1.0 (HOT)
+- database.md (active reference): 0.9 (HOT)
+- old-perf.md (forgotten): 0.01 (dead)
+
+After Resurrection to WARM (0.55):
+- auth.md: 0.98 (minimal impact)
+- database.md: 0.88 (minimal impact)
+- old-perf.md: 0.55 (visible but not dominant)
+
+Result: Lighthouse illuminates forgotten context
+        without moving your ship
+```
+
+**The Lighthouse Metaphor:**
+- 🔦 Beam sweeps periodically (every 100 turns)
+- 💡 Illuminates what's there (forgotten files become visible)
+- 🚢 Doesn't move your ship (HOT files stay HOT)
+- 🧭 You choose navigation (agency preserved)
+
+### Is This Beneficial or Just Noise?
 
 ### Implementation
 
 Added to `PressureConfig`:
 
 ```python
-# Toroidal Decay (Experimental)
-use_toroidal_decay: bool = False    # Feature flag
-resurrection_threshold: float = 0.01  # Wrap when pressure < this
-resurrection_pressure: float = 0.8    # Resurrect as HOT
-resurrection_cooldown: int = 100      # Turns between resurrections
+# Toroidal Decay: "The Lighthouse" (Active by Default)
+use_toroidal_decay: bool = True       # ENABLED: Gentle re-anchoring
+resurrection_threshold: float = 0.05  # When file is effectively dead
+resurrection_pressure: float = 0.55   # Resurrect to WARM (non-disruptive)
+resurrection_cooldown: int = 100      # Sweep cycle: ~3-4 hours
 ```
 
 Added to `CognitiveFile`:
@@ -246,27 +306,47 @@ Toroidal decay implements the *mechanism* of curiosity-driven attention (forgott
 
 ### Recommendation
 
-**For v0.1.0:** Keep `use_toroidal_decay = False` (default)
-- Linear decay is simpler and proven to work
-- No clear advantage demonstrated in testing
-- Conservative approach for initial release
+**For v0.1.0:** ✅ **ENABLED BY DEFAULT** (`use_toroidal_decay = True`)
 
-**For v0.2.0+:** Consider enabling if:
-- Users report "forgetting" important context
-- Large documentation graphs (100+ files) where manual activation is impractical
-- Long-running sessions (1000+ turns) where spaced repetition could help
-- A/B testing in production shows improved context relevance
+**Why Enable by Default:**
+1. **Non-Disruptive Design:** Resurrects to WARM (0.55), not HOT (0.8)
+   - Doesn't displace active work (low conservation impact)
+   - High visibility without interruption
+   - Preserves user agency (can ignore resurrected files)
 
-**How to Enable:**
+2. **Long-Context Re-Anchoring:** Solves real problem
+   - In sessions >1000 turns, humans forget what files exist
+   - Lighthouse beam surfaces forgotten but relevant context
+   - Compensates for working memory degradation
+
+3. **Safe Defaults:**
+   - Cooldown (100 turns) prevents resurrection loops
+   - Threshold (0.05) only resurrects truly dead files
+   - Conservative WARM placement minimizes disruption
+
+**How to Disable (if desired):**
+
+```python
+pressure_config = PressureConfig(
+    use_toroidal_decay=False,  # Revert to linear decay
+)
+```
+
+**How to Tune:**
 
 ```python
 pressure_config = PressureConfig(
     use_toroidal_decay=True,
-    resurrection_threshold=0.01,
-    resurrection_pressure=0.8,
-    resurrection_cooldown=100,
+    resurrection_threshold=0.05,   # Default: When file is dead
+    resurrection_pressure=0.55,    # Default: WARM tier (non-disruptive)
+    resurrection_cooldown=100,     # Default: ~3-4 hours heavy usage
 )
 ```
+
+**When to Adjust:**
+- **Higher cooldown (200+):** For very large codebases (reduce resurrection frequency)
+- **Lower threshold (0.02):** For more aggressive resurrection (files resurface sooner)
+- **Higher pressure (0.7):** For more prominent visibility (closer to HOT, more disruptive)
 
 ---
 
@@ -332,7 +412,7 @@ All existing code continues to work with default values.
 
 ```bash
 git add -A
-git commit -m "fix: state drift + ghost edges + experimental toroidal decay
+git commit -m "fix: state drift + ghost edges | feat: lighthouse toroidal decay
 
 Critical Fixes:
 - Fix state drift bug: add periodic redistribute_pressure() call
@@ -345,31 +425,43 @@ Critical Fixes:
   - Added exclude_generic_terms list to EdgeDiscoveryConfig
   - Affects: dag.py
 
-Experimental Feature:
-- Implement toroidal decay (curiosity-driven resurrection)
-  - Files can 'wrap around' from dead (0.0) to HOT (0.8)
-  - Implements spaced repetition: forgotten memories resurface
-  - Disabled by default (use_toroidal_decay = False)
-  - Tested with decay_comparison.py
-  - Results: Works but no clear advantage over linear decay
-  - Recommendation: Keep disabled for v0.1.0
+Production Feature: Toroidal Decay - 'The Lighthouse'
+- Implement curiosity-driven resurrection (spaced repetition)
+  - Files 'wrap around' from dead (0.05) to WARM (0.55)
+  - ENABLED BY DEFAULT (use_toroidal_decay = True)
+  - Resurrects to WARM, not HOT (non-disruptive design)
   - Affects: pressure.py, system.py
+
+Key Design Insight:
+  Original design (resurrect to HOT 0.8) displaced active work
+  due to conservation. New design (resurrect to WARM 0.55)
+  provides high visibility without disruption.
+
+  Metaphor: Lighthouse beam that sweeps periodically, illuminating
+  forgotten context without moving your ship. User chooses whether
+  to navigate toward the beacon (agency preserved).
+
+Long-Context Re-Anchoring:
+  In sessions >1000 turns, humans forget what files exist.
+  Lighthouse compensates for working memory degradation by
+  surfacing forgotten but relevant context proactively.
 
 Testing:
 - Created tests/decay_comparison.py
-- 500-turn simulation comparing both modes
+- 500-turn simulation comparing linear vs toroidal
 - Both maintain conservation property
-- Toroidal mode: 2 resurrection events
-- Final outcomes similar (query activation sufficient)
+- Toroidal mode: 2 resurrection events to WARM tier
+- Non-disruptive: HOT files stay HOT
 
 Performance:
-- State drift fix: negligible (~0.1ms per 100 turns)
+- State drift fix: ~0.1ms per 100 turns (negligible)
 - Ghost edge fix: positive (reduces false edges)
-- Toroidal decay: negligible (2-3 extra comparisons per file)
+- Toroidal decay: 2-3 extra comparisons per file (negligible)
 
 Backward Compatibility:
 - No breaking changes
 - New config fields have safe defaults
+- Toroidal decay can be disabled if desired
 - All existing code continues to work"
 ```
 

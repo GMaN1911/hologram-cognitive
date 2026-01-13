@@ -33,11 +33,13 @@ class PressureConfig:
     decay_rate: float = 0.85            # Multiply pressure by this each turn
     decay_immunity_turns: int = 2       # Don't decay recently activated files
 
-    # Toroidal Decay (Experimental)
-    use_toroidal_decay: bool = False    # If true, pressure wraps instead of dying
-    resurrection_threshold: float = 0.01  # When pressure drops below this, wrap around
-    resurrection_pressure: float = 0.8    # Pressure level after resurrection (HOT)
-    resurrection_cooldown: int = 100      # Turns between resurrections per file
+    # Toroidal Decay: "The Lighthouse" (Active by Default)
+    # Metaphor: A lighthouse beam that sweeps periodically, illuminating
+    # forgotten context without disrupting your current navigation.
+    use_toroidal_decay: bool = True       # ENABLED: Gentle re-anchoring
+    resurrection_threshold: float = 0.05  # When file is effectively dead
+    resurrection_pressure: float = 0.55   # Resurrect to WARM (visible but non-disruptive)
+    resurrection_cooldown: int = 100      # Sweep cycle: ~3-4 hours of heavy usage
 
     # Conservation
     enable_conservation: bool = True    # If true, boosting drains from others
@@ -203,10 +205,20 @@ def apply_decay(
 
     Recently activated files are immune (decay_immunity_turns).
 
-    Toroidal Decay Mode (Experimental):
-    When use_toroidal_decay=True, files that decay below resurrection_threshold
-    will "wrap around" and resurrect with high pressure (spaced repetition).
-    This implements curiosity-driven attention: forgotten memories resurface.
+    Toroidal Decay: "The Lighthouse" (Active by Default)
+    When use_toroidal_decay=True (default), files that decay below
+    resurrection_threshold will "wrap around" and resurrect to WARM tier.
+
+    Design Philosophy:
+    - Resurrect to WARM (0.55), not HOT (0.8)
+    - High visibility without displacing active work
+    - Conservation still applies, but impact is gentle
+    - Metaphor: Lighthouse beam illuminating forgotten context
+    - You can navigate toward it or ignore it (user agency)
+
+    This implements spaced repetition for long-context re-anchoring.
+    In sessions >1000 turns, human working memory fails. The lighthouse
+    compensates by periodically surfacing forgotten but relevant files.
 
     Args:
         files: Dict of path → CognitiveFile
@@ -215,7 +227,7 @@ def apply_decay(
 
     Returns:
         Dict of path → pressure delta from decay (negative for normal decay,
-        large positive for resurrections)
+        positive for resurrections to WARM tier)
     """
     if config is None:
         config = PressureConfig()
