@@ -22,7 +22,7 @@ class PressureConfig:
     """Configuration for pressure dynamics."""
     
     # Activation
-    activation_boost: float = 0.4       # Pressure boost when file is activated
+    activation_boost: float = 0.6       # Pressure boost when file is activated (bumped for first-mention HOT injection)
     
     # Propagation
     edge_flow_rate: float = 0.15        # How much pressure flows per edge per turn

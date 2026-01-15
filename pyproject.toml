@@ -1,24 +1,38 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "hologram-cognitive"
-version = "0.1.1"
-description = "Pressure-based context routing with lighthouse re-anchoring for Claude Code"
+version = "0.2.0"
+description = "Pressure-based context routing with lighthouse resurrection for LLMs"
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "Garret Sutherland", email = "gsutherland@mirrorethic.com"}
+    { name = "Garret Sutherland", email = "gsutherland@mirrorethic.com" }
+]
+keywords = [
+    "llm",
+    "context",
+    "memory",
+    "routing",
+    "claude",
+    "ai",
+    "cognitive",
+    "pressure",
+    "dag"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 requires-python = ">=3.9"
 dependencies = []
@@ -27,19 +41,40 @@ dependencies = []
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "black>=23.0",
+    "ruff>=0.1.0",
 ]
 
 [project.scripts]
-hologram-router = "hologram.router:main"
+hologram = "hologram.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/GMaN1911/hologram-cognitive"
 Documentation = "https://github.com/GMaN1911/hologram-cognitive#readme"
 Repository = "https://github.com/GMaN1911/hologram-cognitive"
+Issues = "https://github.com/GMaN1911/hologram-cognitive/issues"
 
-[tool.setuptools.packages.find]
-include = ["hologram*"]
+[tool.hatch.build.targets.wheel]
+packages = ["hologram"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "test_env/",
+    "build_env/",
+    "venv/",
+    "test_*.py",
+    "TEST_RESULTS.md",
+    "INTEGRATION_TEST_RESULTS.md",
+    ".pytest_cache/",
+    "__pycache__/",
+    "*.pyc",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
