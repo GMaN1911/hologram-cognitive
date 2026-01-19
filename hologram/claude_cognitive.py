@@ -46,10 +46,11 @@ class HologramBackend:
             auto_save: Automatically save state after each turn
             max_injection_chars: Maximum characters for injection
         """
-        self.claude_dir = claude_dir
+        self.claude_dir = Path(claude_dir)
         self.auto_save = auto_save
         self.max_injection_chars = max_injection_chars
         self.session = get_session(claude_dir)
+        self.history_file = self.claude_dir / 'hologram_history.jsonl'
 
     def route_message(
         self,
@@ -72,6 +73,7 @@ class HologramBackend:
         # Save state if auto_save enabled
         if self.auto_save:
             self.session.save()
+            self._append_history(result, user_prompt)
 
         # Format output based on requested format
         if return_format == 'claude-cognitive':
@@ -175,6 +177,33 @@ class HologramBackend:
             'backend': 'hologram-cognitive',
             'version': '0.2.0'
         }
+
+    def _append_history(self, result: TurnResult, query: str):
+        """
+        Append turn record to history file for learning system.
+
+        Args:
+            result: TurnResult from the turn
+            query: Original user query
+        """
+        import time
+        try:
+            entry = {
+                'turn': result.turn_number,
+                'timestamp': time.time(),
+                'query': query,
+                'activated': result.activated,
+                'hot': result.hot,
+                'warm': result.warm,
+                'cold_count': len(result.cold),
+                'injection_chars': len(result.injection),
+            }
+            with open(self.history_file, 'a') as f:
+                f.write(json.dumps(entry) + '\n')
+        except Exception as e:
+            # Don't fail the hook if history write fails
+            import sys
+            print(f"Warning: Could not write history: {e}", file=sys.stderr)
 
 
 def create_claude_cognitive_hook(

@@ -49,39 +49,141 @@ class PressureConfig:
     hot_propagates: bool = True         # Only HOT files propagate
     min_pressure_to_propagate: float = 0.8  # Minimum raw pressure to propagate
 
+    # Basin dynamics (v0.3.0) - attention stickiness
+    max_basin_depth_turns: int = 5       # Turns at HOT to reach max basin depth
+    basin_depth_multiplier: float = 1.5  # How much deeper basins resist decay
+    basin_cooldown_rate: int = 2         # How fast basins shallow when not HOT
+
+
+# =============================================================================
+# Basin Dynamics (v0.3.0)
+# =============================================================================
+
+def compute_basin_depth(
+    consecutive_hot_turns: int,
+    config: Optional[PressureConfig] = None
+) -> float:
+    """
+    Compute basin depth from consecutive HOT turns.
+
+    Basin depth ranges from 1.0 (shallow, just activated) to 2.5 (deep, sustained focus).
+    Deeper basins resist decay more strongly, modeling how sustained attention
+    creates "sticky" focus that resists distraction.
+
+    Args:
+        consecutive_hot_turns: Number of consecutive turns file has been HOT
+        config: Pressure configuration
+
+    Returns:
+        Basin depth in range [1.0, 1.0 + basin_depth_multiplier]
+    """
+    if config is None:
+        config = PressureConfig()
+
+    # Normalize to [0, 1] range, capped at max_basin_depth_turns
+    normalized = min(consecutive_hot_turns / config.max_basin_depth_turns, 1.0)
+
+    # Basin depth: 1.0 + (normalized * multiplier)
+    # Default: 1.0 (shallow) to 2.5 (deep with multiplier=1.5)
+    return 1.0 + (normalized * config.basin_depth_multiplier)
+
+
+def compute_effective_decay(
+    base_decay: float,
+    basin_depth: float
+) -> float:
+    """
+    Compute effective decay rate based on basin depth.
+
+    Deeper basins = slower decay. Uses root function so deeper basins
+    decay more slowly:
+    - basin_depth=1.0: decay^1.0 = 0.85 (normal decay)
+    - basin_depth=2.0: decay^0.5 = 0.92 (slower decay)
+    - basin_depth=2.5: decay^0.4 = 0.94 (much slower decay)
+
+    Args:
+        base_decay: Normal decay rate (e.g., 0.85)
+        basin_depth: Current basin depth (1.0 to 2.5)
+
+    Returns:
+        Effective decay rate (higher = slower decay)
+    """
+    return base_decay ** (1.0 / basin_depth)
+
+
+def update_basin_state(
+    files: Dict[str, 'CognitiveFile'],
+    current_turn: int,
+    config: Optional[PressureConfig] = None
+):
+    """
+    Update basin state for all files after pressure changes.
+
+    Called at the end of each turn to track:
+    - consecutive_hot_turns: incremented if HOT, decremented (by cooldown_rate) if not
+    - basin_depth: recomputed from consecutive_hot_turns
+
+    Args:
+        files: Dict of path → CognitiveFile
+        current_turn: Current turn number (unused, for future extensions)
+        config: Pressure configuration
+    """
+    if config is None:
+        config = PressureConfig()
+
+    for file in files.values():
+        is_hot_now = file.tier == "HOT"
+
+        if is_hot_now:
+            # File is HOT - deepen the basin
+            file.consecutive_hot_turns += 1
+        else:
+            # File is not HOT - shallow the basin gradually
+            file.consecutive_hot_turns = max(
+                0,
+                file.consecutive_hot_turns - config.basin_cooldown_rate
+            )
+
+        # Recompute basin depth
+        file.basin_depth = compute_basin_depth(file.consecutive_hot_turns, config)
+
 
 def apply_activation(
     files: Dict[str, 'CognitiveFile'],
-    activated_paths: List[str],
+    activated_scores: Dict[str, float],
     config: Optional[PressureConfig] = None
 ) -> Dict[str, float]:
     """
     Apply activation boost to files that were mentioned/triggered.
-    
+
+    Boost is scaled by activation score - files with higher match quality
+    get proportionally higher boosts (capped at 3x base boost).
+
     If conservation is enabled, pressure is drained from non-activated files.
-    
+
     Args:
         files: Dict of path → CognitiveFile
-        activated_paths: Paths that were activated this turn
+        activated_scores: Dict of path → activation score (higher = stronger match)
         config: Pressure configuration
-    
+
     Returns:
         Dict of path → pressure delta (for logging)
     """
     if config is None:
         config = PressureConfig()
-    
-    if not activated_paths:
+
+    if not activated_scores:
         return {}
-    
+
     deltas = {}
-    
-    # Calculate boost
-    total_boost = len(activated_paths) * config.activation_boost
-    
+
+    # Calculate total boost based on sum of scores (capped per-file at 3x)
+    capped_scores = {p: min(s, 3.0) for p, s in activated_scores.items()}
+    total_boost = sum(capped_scores.values()) * config.activation_boost
+
     if config.enable_conservation:
         # Drain from non-activated files to maintain conservation
-        non_activated = [p for p in files if p not in activated_paths]
+        non_activated = [p for p in files if p not in activated_scores]
         if non_activated:
             drain_per_file = total_boost / len(non_activated)
             for path in non_activated:
@@ -89,15 +191,17 @@ def apply_activation(
                 files[path].raw_pressure = max(0.0, old - drain_per_file)
                 files[path].pressure_bucket = quantize_pressure(files[path].raw_pressure)
                 deltas[path] = files[path].raw_pressure - old
-    
-    # Apply boost to activated files
-    for path in activated_paths:
+
+    # Apply boost to activated files, scaled by their score
+    for path, score in activated_scores.items():
         if path in files:
             old = files[path].raw_pressure
-            files[path].raw_pressure = min(1.0, old + config.activation_boost)
+            # Scale boost by score (capped at 3x base boost)
+            scaled_boost = config.activation_boost * min(score, 3.0)
+            files[path].raw_pressure = min(1.0, old + scaled_boost)
             files[path].pressure_bucket = quantize_pressure(files[path].raw_pressure)
             deltas[path] = files[path].raw_pressure - old
-    
+
     return deltas
 
 
@@ -242,8 +346,10 @@ def apply_decay(
 
         old = file.raw_pressure
 
-        # Standard linear decay
-        file.raw_pressure *= config.decay_rate
+        # Basin-aware decay (v0.3.0)
+        # Deeper basins (more consecutive HOT turns) decay more slowly
+        effective_decay = compute_effective_decay(config.decay_rate, file.basin_depth)
+        file.raw_pressure *= effective_decay
 
         # Toroidal resurrection (experimental)
         if config.use_toroidal_decay:

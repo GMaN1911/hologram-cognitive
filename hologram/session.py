@@ -27,13 +27,29 @@ from dataclasses import dataclass, field
 
 from .router import create_router_from_directory
 from .system import process_turn as _process_turn, get_context as _get_context
+from .turn_state import (
+    TurnState,
+    TurnStateConfig,
+    load_turn_state,
+    save_turn_state,
+    apply_inherited_pressure,
+    compute_next_state,
+)
+from .resolution import detect_resolution, analyze_query
+from .crystallize import (
+    CrystallizeConfig,
+    should_crystallize,
+    crystallize as _crystallize,
+    list_sessions,
+    SessionInfo,
+)
 
 
 @dataclass
 class TurnResult:
     """
     Result of processing a conversation turn.
-    
+
     Attributes:
         activated: Files activated by this turn's message
         hot: Files at CRITICAL pressure (≥0.8)
@@ -41,6 +57,13 @@ class TurnResult:
         cold: Files below HIGH pressure (<0.5)
         injection: Formatted context string ready for prompt injection
         turn_number: Current turn count
+
+        # v0.3.0 additions
+        resolved: Whether resolution was detected
+        resolution_type: "completion", "topic_change", or "none"
+        tension: Current tension level (0.0-1.0)
+        cluster_size: Number of files in attention cluster
+        pending_crystallization: Whether crystallization should be triggered
     """
     activated: List[str]
     hot: List[str]
@@ -48,13 +71,20 @@ class TurnResult:
     cold: List[str]
     injection: str
     turn_number: int
-    
+
+    # v0.3.0 - turn state metadata
+    resolved: bool = False
+    resolution_type: str = "none"
+    tension: float = 0.0
+    cluster_size: int = 0
+    pending_crystallization: bool = False
+
     def __str__(self) -> str:
         """String representation returns injection text."""
         return self.injection
-    
+
     def __repr__(self) -> str:
-        return f"TurnResult(turn={self.turn_number}, hot={len(self.hot)}, warm={len(self.warm)}, activated={len(self.activated)})"
+        return f"TurnResult(turn={self.turn_number}, hot={len(self.hot)}, warm={len(self.warm)}, activated={len(self.activated)}, tension={self.tension:.2f})"
 
 
 class Session:
@@ -87,10 +117,12 @@ class Session:
     """
     
     def __init__(
-        self, 
+        self,
         claude_dir: str = '.claude',
         auto_bootstrap: bool = False,
-        instance_id: str = 'default'
+        instance_id: str = 'default',
+        enable_turn_state: bool = True,  # v0.3.0
+        auto_crystallize: bool = True,   # v0.3.0
     ):
         self.claude_dir = Path(claude_dir).resolve()
         self.instance_id = instance_id
@@ -98,11 +130,25 @@ class Session:
         self._system = None
         self._last_result: Optional[TurnResult] = None
         self._config: Dict[str, Any] = {}
-        
+
+        # v0.3.0 - turn state inheritance
+        self._enable_turn_state = enable_turn_state
+        self._turn_state: Optional[TurnState] = None
+        self._turn_state_config = TurnStateConfig()
+
+        # v0.3.0 - auto-crystallization
+        self._auto_crystallize = auto_crystallize
+        self._crystallize_config = CrystallizeConfig()
+        self._last_crystallization: Optional[Path] = None
+
         if auto_bootstrap:
             self._load_memory_config()
-        
+
         self._init_router()
+
+        # Load turn state after router init
+        if self._enable_turn_state:
+            self._turn_state = load_turn_state(self.claude_dir)
     
     def _load_memory_config(self) -> None:
         """Load configuration from MEMORY.md if present."""
@@ -135,24 +181,47 @@ class Session:
     def last_result(self) -> Optional[TurnResult]:
         """Get the result from the most recent turn."""
         return self._last_result
+
+    @property
+    def turn_state(self) -> Optional[TurnState]:
+        """Get the current turn state (v0.3.0)."""
+        return self._turn_state
     
     def turn(self, message: str) -> TurnResult:
         """
         Process a conversation turn.
-        
+
         Routes the message through the pressure system, activates relevant files,
         propagates pressure, and returns formatted context for injection.
-        
+
+        v0.3.0: Now includes turn-state inheritance:
+        - Applies inherited pressure from previous turn
+        - Detects resolution (completion, topic change)
+        - Computes next turn state
+        - Tracks attention clusters and tension
+
         Args:
             message: User message to route
-            
+
         Returns:
             TurnResult containing injection text and metadata
         """
+        # v0.3.0 - Apply inherited pressure before processing
+        if self._enable_turn_state and self._turn_state:
+            apply_inherited_pressure(
+                self._system.files,
+                self._turn_state.pressure_inheritance,
+                self._turn_state_config
+            )
+
+        # v0.3.0 - Detect resolution before processing
+        prev_tension = self._turn_state.unresolved_tension if self._turn_state else 0.0
+        resolved, resolution_type = detect_resolution(message, prev_tension)
+
         # Process through the system
         result = _process_turn(self._system, message)
         context = _get_context(self._system)
-        
+
         # Categorize files by pressure tier
         hot, warm, cold = [], [], []
         for name, cf in self._system.files.items():
@@ -162,57 +231,128 @@ class Session:
                 warm.append(name)
             else:
                 cold.append(name)
-        
+
         # Sort by pressure within each tier
         hot = sorted(hot, key=lambda n: -self._system.files[n].raw_pressure)
         warm = sorted(warm, key=lambda n: -self._system.files[n].raw_pressure)
         cold = sorted(cold, key=lambda n: -self._system.files[n].raw_pressure)
-        
+
+        # v0.3.0 - Compute next turn state
+        next_state = None
+        if self._enable_turn_state:
+            prev_state = self._turn_state or TurnState()
+            activated_set = set(result.activated) if hasattr(result.activated, '__iter__') else set()
+
+            next_state = compute_next_state(
+                prev_state=prev_state,
+                activated_files=activated_set,
+                files=self._system.files,
+                query=message,
+                resolved=resolved,
+                resolution_type=resolution_type,
+                config=self._turn_state_config
+            )
+
+            # Save turn state
+            self._turn_state = next_state
+            save_turn_state(next_state, self.claude_dir)
+
+            # v0.3.0 - Auto-crystallization on resolution
+            if self._auto_crystallize and should_crystallize(
+                resolved=resolved,
+                resolution_type=resolution_type,
+                cluster_sustained_turns=next_state.cluster_sustained_turns,
+                attention_cluster=next_state.attention_cluster,
+                files=self._system.files,
+                config=self._crystallize_config
+            ):
+                # Trigger crystallization
+                filepath = _crystallize(
+                    attention_cluster=next_state.attention_cluster,
+                    tension_sources=next_state.tension_sources,
+                    files=self._system.files,
+                    cluster_sustained_turns=next_state.cluster_sustained_turns,
+                    claude_dir=self.claude_dir,
+                    config=self._crystallize_config
+                )
+                self._last_crystallization = filepath
+
+                # Register the new session note with the router
+                rel_path = str(filepath.relative_to(self.claude_dir))
+                content = filepath.read_text()
+                self._system.add_file(rel_path, content)
+
+                # Mark crystallization complete
+                next_state.pending_crystallization = False
+
         self._last_result = TurnResult(
             activated=list(result.activated) if hasattr(result.activated, '__iter__') else result.activated,
             hot=hot,
             warm=warm,
             cold=cold,
             injection=self._format_injection(context),
-            turn_number=self._system.current_turn
+            turn_number=self._system.current_turn,
+            # v0.3.0 additions
+            resolved=resolved,
+            resolution_type=resolution_type,
+            tension=next_state.unresolved_tension if next_state else 0.0,
+            cluster_size=len(next_state.attention_cluster) if next_state else 0,
+            pending_crystallization=next_state.pending_crystallization if next_state else False,
         )
-        
+
         return self._last_result
     
     def _format_injection(self, context: Any) -> str:
         """
         Format context for injection into prompt.
-        
+
         Converts the raw context dict into a formatted string suitable
         for including in an LLM prompt.
+
+        Files with '<!-- WARM CONTEXT ENDS ABOVE THIS LINE -->' markers
+        will only have their summary (above the marker) injected for HOT,
+        preserving the designed summary/full-content structure.
         """
         if isinstance(context, str):
             return context
-        
+
+        WARM_MARKER = "<!-- WARM CONTEXT ENDS ABOVE THIS LINE -->"
+
+        def get_hot_content(cf) -> str:
+            """Get HOT content - summary if marker exists, else full."""
+            if WARM_MARKER in cf.content:
+                # Use designed summary (content above marker)
+                return cf.content.split(WARM_MARKER)[0].strip()
+            # No marker - use full content but cap at 3000 chars
+            if len(cf.content) > 3000:
+                return cf.content[:3000] + "\n\n... (truncated, use Read for full content)"
+            return cf.content
+
         # Handle dict format from get_context
         if isinstance(context, dict):
             parts = []
-            
+
             if 'HOT' in context and context['HOT']:
                 parts.append("=== ACTIVE MEMORY ===\n")
                 for cf in context['HOT'][:5]:  # Limit to top 5
-                    parts.append(f"## {cf.path}\n{cf.content}\n")
-            
+                    hot_content = get_hot_content(cf)
+                    parts.append(f"## {cf.path}\n{hot_content}\n")
+
             if 'WARM' in context and context['WARM']:
                 parts.append("\n=== RELATED CONTEXT ===\n")
-                for cf in context['WARM'][:3]:  # Limit to top 3
+                for cf in context['WARM'][:5]:  # Limit to top 5
                     # Headers only for warm files
                     lines = cf.content.split('\n')
                     headers = [l for l in lines if l.startswith('#')]
                     parts.append(f"## {cf.path}\n" + '\n'.join(headers[:5]) + "\n")
-            
+
             if 'COLD' in context and context['COLD']:
                 parts.append("\n=== AVAILABLE (inactive) ===\n")
                 cold_names = [cf.path for cf in context['COLD'][:10]]
                 parts.append(', '.join(cold_names) + "\n")
-            
+
             return '\n'.join(parts)
-        
+
         return str(context)
     
     def note(
@@ -352,14 +492,79 @@ class Session:
     def get_file(self, name: str) -> Optional[Any]:
         """
         Get a specific file by name.
-        
+
         Args:
             name: Filename (relative to .claude/)
-            
+
         Returns:
             CognitiveFile or None if not found
         """
         return self._system.files.get(name)
+
+    # =========================================================================
+    # v0.3.0 - Crystallization
+    # =========================================================================
+
+    def crystallize(self, summary: Optional[str] = None) -> Optional[Path]:
+        """
+        Crystallize the current attention cluster into a session note.
+
+        Creates a markdown file in .claude/sessions/ capturing the current
+        working context. Usually called automatically when resolution is
+        detected after sustained attention.
+
+        Args:
+            summary: Optional user-provided summary to include
+
+        Returns:
+            Path to created session note, or None if conditions not met
+        """
+        if not self._enable_turn_state or not self._turn_state:
+            return None
+
+        state = self._turn_state
+
+        # Check if crystallization is warranted
+        if not state.attention_cluster:
+            return None
+
+        # Force crystallization even if conditions not fully met
+        # (manual call overrides automatic thresholds)
+        filepath = _crystallize(
+            attention_cluster=state.attention_cluster,
+            tension_sources=state.tension_sources,
+            files=self._system.files,
+            cluster_sustained_turns=state.cluster_sustained_turns,
+            claude_dir=self.claude_dir,
+            summary=summary,
+            config=self._crystallize_config
+        )
+
+        self._last_crystallization = filepath
+
+        # Register the new file with the router
+        rel_path = str(filepath.relative_to(self.claude_dir))
+        content = filepath.read_text()
+        self._system.add_file(rel_path, content)
+
+        return filepath
+
+    def sessions(self, limit: int = 20) -> List[SessionInfo]:
+        """
+        List recent session notes.
+
+        Args:
+            limit: Maximum sessions to return (default: 20)
+
+        Returns:
+            List of SessionInfo, most recent first
+        """
+        return list_sessions(self.claude_dir, self._crystallize_config, limit)
+
+    @property
+    def last_crystallization(self) -> Optional[Path]:
+        """Get the path to the most recent crystallization (if any)."""
+        return self._last_crystallization
 
 
 # Module-level default session for convenience functions

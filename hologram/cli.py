@@ -230,16 +230,131 @@ def cmd_import(args: argparse.Namespace) -> None:
 def cmd_files(args: argparse.Namespace) -> None:
     """List files in memory."""
     from .session import Session
-    
+
     session = Session(args.claude_dir)
-    
+
     files = session.files_by_pressure(args.min_pressure)
-    
+
     if args.json:
         print(json.dumps([{'name': n, 'pressure': p} for n, p in files], indent=2))
     else:
         for name, pressure in files:
             print(f"{pressure:.2f} {name}")
+
+
+# =============================================================================
+# v0.3.0 Commands
+# =============================================================================
+
+def cmd_state(args: argparse.Namespace) -> None:
+    """Show turn state (v0.3.0)."""
+    from .session import Session
+
+    session = Session(args.claude_dir)
+    state = session.turn_state
+
+    if state is None:
+        print("No turn state found.")
+        return
+
+    if args.json:
+        data = state.to_dict()
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"Turn: {state.turn}")
+        print(f"Timestamp: {state.timestamp}")
+        print()
+        print(f"Attention Cluster ({len(state.attention_cluster)} files):")
+        for path in sorted(state.attention_cluster):
+            print(f"  - {path}")
+        print()
+        print(f"Cluster Formation: Turn {state.cluster_formation_turn}")
+        print(f"Cluster Sustained: {state.cluster_sustained_turns} turns")
+        print()
+        print(f"Tension: {state.unresolved_tension:.2f}")
+        if state.tension_sources:
+            print(f"Tension Sources: {', '.join(state.tension_sources[:5])}")
+        print()
+        print(f"Last Resolution: Turn {state.last_resolution_turn}")
+        print(f"Pending Crystallization: {state.pending_crystallization}")
+        print()
+
+        if state.pressure_inheritance:
+            print(f"Pressure Inheritance ({len(state.pressure_inheritance)} files):")
+            for path, pressure in sorted(state.pressure_inheritance.items(), key=lambda x: -x[1])[:5]:
+                print(f"  {pressure:.2f} {path}")
+
+        # Also show basin depths if available
+        print()
+        print("Basin Depths (HOT files):")
+        for path in sorted(state.attention_cluster):
+            cf = session.get_file(path)
+            if cf and cf.raw_pressure >= 0.8:
+                print(f"  {cf.basin_depth:.2f} {path} (consecutive_hot: {cf.consecutive_hot_turns})")
+
+
+def cmd_crystallize(args: argparse.Namespace) -> None:
+    """Manually trigger crystallization (v0.3.0)."""
+    from .session import Session
+
+    session = Session(args.claude_dir)
+
+    # Check state exists
+    if session.turn_state is None:
+        print("No turn state found. Run some turns first.")
+        sys.exit(1)
+
+    if not session.turn_state.attention_cluster:
+        print("No attention cluster to crystallize.")
+        sys.exit(1)
+
+    # Crystallize
+    filepath = session.crystallize(summary=args.summary)
+
+    if filepath:
+        print(f"Crystallized to: {filepath}")
+        if not args.quiet:
+            print()
+            content = filepath.read_text()
+            if len(content) > 1000:
+                content = content[:1000] + "\n... (truncated)"
+            print(content)
+    else:
+        print("Crystallization failed (conditions not met).")
+
+
+def cmd_sessions(args: argparse.Namespace) -> None:
+    """List session notes (v0.3.0)."""
+    from .session import Session
+
+    session = Session(args.claude_dir)
+    sessions_list = session.sessions(limit=args.limit)
+
+    if not sessions_list:
+        print("No session notes found.")
+        return
+
+    if args.json:
+        data = [
+            {
+                'path': str(s.path),
+                'title': s.title,
+                'timestamp': s.timestamp.isoformat(),
+                'cluster_size': s.cluster_size,
+                'sustained_turns': s.sustained_turns,
+            }
+            for s in sessions_list
+        ]
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"Session Notes ({len(sessions_list)} found):")
+        print()
+        for s in sessions_list:
+            ts = s.timestamp.strftime("%Y-%m-%d %H:%M")
+            print(f"  [{ts}] {s.title}")
+            print(f"           Cluster: {s.cluster_size} files, Sustained: {s.sustained_turns} turns")
+            print(f"           Path: {s.path.name}")
+            print()
 
 
 def main() -> None:
@@ -252,7 +367,7 @@ def main() -> None:
     parser.add_argument(
         '--version', '-V',
         action='version',
-        version='%(prog)s 0.2.0'
+        version='%(prog)s 0.3.0'
     )
     
     subparsers = parser.add_subparsers(dest='command', required=True)
@@ -313,7 +428,31 @@ def main() -> None:
     p_files.add_argument('--min', '-m', dest='min_pressure', type=float, default=0.0, help='Minimum pressure')
     p_files.add_argument('--json', '-j', action='store_true', help='Output as JSON')
     p_files.set_defaults(func=cmd_files)
-    
+
+    # =========================================================================
+    # v0.3.0 Commands
+    # =========================================================================
+
+    # state
+    p_state = subparsers.add_parser('state', help='Show turn state (v0.3.0)')
+    p_state.add_argument('claude_dir', help='Path to .claude directory')
+    p_state.add_argument('--json', '-j', action='store_true', help='Output as JSON')
+    p_state.set_defaults(func=cmd_state)
+
+    # crystallize
+    p_crystallize = subparsers.add_parser('crystallize', help='Manually crystallize attention cluster (v0.3.0)')
+    p_crystallize.add_argument('claude_dir', help='Path to .claude directory')
+    p_crystallize.add_argument('--summary', '-s', help='Optional summary to include')
+    p_crystallize.add_argument('--quiet', '-q', action='store_true', help='Minimal output')
+    p_crystallize.set_defaults(func=cmd_crystallize)
+
+    # sessions
+    p_sessions = subparsers.add_parser('sessions', help='List session notes (v0.3.0)')
+    p_sessions.add_argument('claude_dir', help='Path to .claude directory')
+    p_sessions.add_argument('--limit', '-n', type=int, default=20, help='Maximum sessions to show')
+    p_sessions.add_argument('--json', '-j', action='store_true', help='Output as JSON')
+    p_sessions.set_defaults(func=cmd_sessions)
+
     args = parser.parse_args()
     args.func(args)
 

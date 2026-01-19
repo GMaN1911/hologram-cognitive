@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hologram-cognitive"
-version = "0.2.0"
-description = "Pressure-based context routing with lighthouse resurrection for LLMs"
+version = "0.3.0"
+description = "Pressure-based context routing with attention basins and lighthouse resurrection for LLMs"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -20,7 +20,10 @@ keywords = [
     "ai",
     "cognitive",
     "pressure",
-    "dag"
+    "dag",
+    "attention",
+    "basin",
+    "crystallization"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -49,22 +52,20 @@ dev = [
 hologram = "hologram.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/GMaN1911/hologram-cognitive"
-Documentation = "https://github.com/GMaN1911/hologram-cognitive#readme"
-Repository = "https://github.com/GMaN1911/hologram-cognitive"
-Issues = "https://github.com/GMaN1911/hologram-cognitive/issues"
+Homepage = "https://github.com/mirrorethic/hologram-cognitive"
+Documentation = "https://github.com/mirrorethic/hologram-cognitive#readme"
+Repository = "https://github.com/mirrorethic/hologram-cognitive"
+Issues = "https://github.com/mirrorethic/hologram-cognitive/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hologram"]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
+    "tests/",
     "test_env/",
     "build_env/",
     "venv/",
-    "test_*.py",
-    "TEST_RESULTS.md",
-    "INTEGRATION_TEST_RESULTS.md",
     ".pytest_cache/",
     "__pycache__/",
     "*.pyc",

@@ -26,15 +26,39 @@ Author: Garret Sutherland <gsutherland@mirrorethic.com>
 License: MIT
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __author__ = "Garret Sutherland"
 __email__ = "gsutherland@mirrorethic.com"
 
 from .session import Session, TurnResult, route, bootstrap, get_session
 from .router import HologramRouter, create_router_from_directory
 from .system import CognitiveSystem, CognitiveFile, process_turn, get_context
-from .pressure import PressureConfig
+from .pressure import (
+    PressureConfig,
+    compute_basin_depth,
+    compute_effective_decay,
+    update_basin_state,
+)
 from .dag import EdgeDiscoveryConfig
+from .turn_state import (
+    TurnState,
+    TurnStateConfig,
+    load_turn_state,
+    save_turn_state,
+    compute_next_state,
+)
+from .resolution import (
+    detect_resolution,
+    analyze_query,
+    ResolutionResult,
+)
+from .crystallize import (
+    CrystallizeConfig,
+    should_crystallize,
+    crystallize,
+    list_sessions,
+    SessionInfo,
+)
 
 # Optional imports for ecosystem integration
 try:
@@ -61,6 +85,26 @@ __all__ = [
     # Configuration
     'PressureConfig',
     'EdgeDiscoveryConfig',
+    # Basin dynamics (v0.3.0)
+    'compute_basin_depth',
+    'compute_effective_decay',
+    'update_basin_state',
+    # Turn state (v0.3.0)
+    'TurnState',
+    'TurnStateConfig',
+    'load_turn_state',
+    'save_turn_state',
+    'compute_next_state',
+    # Resolution detection (v0.3.0)
+    'detect_resolution',
+    'analyze_query',
+    'ResolutionResult',
+    # Crystallization (v0.3.0)
+    'CrystallizeConfig',
+    'should_crystallize',
+    'crystallize',
+    'list_sessions',
+    'SessionInfo',
     # Integration modules (if available)
     'hooks',
     'claude_cognitive',

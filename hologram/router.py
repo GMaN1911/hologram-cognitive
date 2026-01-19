@@ -105,11 +105,12 @@ class HologramRouter:
                         files[rel_path] = content
                     except Exception as e:
                         print(f"Warning: Could not read {filepath}: {e}")
-        
-        # Create system
+
+        # Create system with batch loading + DAG caching
+        # First load: O(n²) DAG build. Subsequent loads: instant from cache
+        dag_cache = str(claude_path / '.hologram_dag_cache.json')
         system = CognitiveSystem()
-        for path, content in files.items():
-            system.add_file(path, content)
+        system.add_files_batch(files, dag_cache_path=dag_cache)
         
         # Create router
         router = cls(

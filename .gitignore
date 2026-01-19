@@ -1,38 +1,28 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
+# Build artifacts
 dist/
 build/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
 
 # Virtual environments
 venv/
-env/
+test_env/
 build_env/
-ENV/
+env/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
 # OS
 .DS_Store
 Thumbs.db
-
-# State files (generated at runtime)
-hologram_state.json
-hologram_history.jsonl
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Logs
-*.log
