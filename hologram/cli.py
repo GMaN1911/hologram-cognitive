@@ -11,11 +11,15 @@ Usage:
 """
 
 import argparse
+import signal
 import sys
 import json
 import tarfile
 from pathlib import Path
 from typing import List, Optional
+
+# Handle SIGPIPE gracefully (e.g., when piping to head)
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 
 def cmd_route(args: argparse.Namespace) -> None:
@@ -367,7 +371,7 @@ def main() -> None:
     parser.add_argument(
         '--version', '-V',
         action='version',
-        version='%(prog)s 0.3.0'
+        version='%(prog)s 0.3.1'
     )
     
     subparsers = parser.add_subparsers(dest='command', required=True)

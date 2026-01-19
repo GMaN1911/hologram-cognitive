@@ -467,10 +467,9 @@ def process_turn(
     # Update basin state (v0.3.0) - track consecutive HOT turns for decay resistance
     update_basin_state(system.files, system.current_turn, system.pressure_config)
 
-    # Periodic pressure normalization to correct floating-point drift
-    # (Conservation property can degrade over many turns without this)
-    if system.current_turn % 100 == 0:
-        redistribute_pressure(system.files, system.pressure_config)
+    # Enforce conservation every turn (not just periodically)
+    # This ensures total pressure stays at budget and fixes the "all files HOT" issue
+    redistribute_pressure(system.files, system.pressure_config)
 
     # Get final context
     context = get_context(system)

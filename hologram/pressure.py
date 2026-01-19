@@ -378,29 +378,69 @@ def redistribute_pressure(
 ):
     """
     Redistribute pressure to maintain budget (if conservation enabled).
-    
-    Called periodically to correct drift from floating point errors.
+
+    Called after each turn to enforce conservation.
+    Properly handles the 1.0 cap by redistributing overflow to other files.
     """
     if config is None:
         config = PressureConfig()
-    
+
     if not config.enable_conservation:
         return
-    
+
+    if not files:
+        return
+
     current_total = sum(f.raw_pressure for f in files.values())
-    
+
     if current_total == 0:
         # Distribute evenly
         even_pressure = config.total_pressure_budget / len(files)
         for file in files.values():
             file.raw_pressure = even_pressure
             file.pressure_bucket = quantize_pressure(file.raw_pressure)
-    else:
-        # Scale to match budget
-        scale = config.total_pressure_budget / current_total
+        return
+
+    # Simple proportional scaling
+    scale = config.total_pressure_budget / current_total
+
+    if scale <= 1.0:
+        # Scaling down - straightforward, no cap issues
         for file in files.values():
-            file.raw_pressure = min(1.0, file.raw_pressure * scale)
+            file.raw_pressure *= scale
             file.pressure_bucket = quantize_pressure(file.raw_pressure)
+    else:
+        # Scaling up - need to handle 1.0 cap carefully
+        # First pass: scale up, cap at 1.0, track overflow
+        overflow = 0.0
+        uncapped_files = []
+        for file in files.values():
+            new_pressure = file.raw_pressure * scale
+            if new_pressure > 1.0:
+                overflow += new_pressure - 1.0
+                file.raw_pressure = 1.0
+            else:
+                file.raw_pressure = new_pressure
+                uncapped_files.append(file)
+            file.pressure_bucket = quantize_pressure(file.raw_pressure)
+
+        # Distribute overflow to uncapped files (up to 3 iterations to handle cascading)
+        for _ in range(3):
+            if overflow <= 0.001 or not uncapped_files:
+                break
+            share = overflow / len(uncapped_files)
+            overflow = 0.0
+            still_uncapped = []
+            for file in uncapped_files:
+                new_pressure = file.raw_pressure + share
+                if new_pressure > 1.0:
+                    overflow += new_pressure - 1.0
+                    file.raw_pressure = 1.0
+                else:
+                    file.raw_pressure = new_pressure
+                    still_uncapped.append(file)
+                file.pressure_bucket = quantize_pressure(file.raw_pressure)
+            uncapped_files = still_uncapped
 
 
 def get_pressure_stats(files: Dict[str, 'CognitiveFile']) -> dict:

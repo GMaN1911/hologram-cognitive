@@ -26,7 +26,7 @@ Author: Garret Sutherland <gsutherland@mirrorethic.com>
 License: MIT
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "Garret Sutherland"
 __email__ = "gsutherland@mirrorethic.com"
 
