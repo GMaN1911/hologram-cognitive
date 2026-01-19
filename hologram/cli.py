@@ -66,21 +66,24 @@ def cmd_status(args: argparse.Namespace) -> None:
     print(f"Turn: {session.system.current_turn}")
     print()
     
+    # Use relative tiers (top 5 = HOT, next 10 = WARM, etc.)
+    files_sorted = session.files_by_pressure(0.0)
+    hot_count = min(5, len(files_sorted))
+    warm_count = min(10, max(0, len(files_sorted) - hot_count))
+
     if args.json:
         files_data = [
-            {'name': name, 'pressure': cf.raw_pressure}
-            for name, cf in session.system.files.items()
+            {'name': name, 'pressure': pressure, 'tier': 'HOT' if i < hot_count else ('WARM' if i < hot_count + warm_count else 'COLD')}
+            for i, (name, pressure) in enumerate(files_sorted)
         ]
-        print(json.dumps(sorted(files_data, key=lambda x: -x['pressure']), indent=2))
+        print(json.dumps(files_data, indent=2))
     else:
-        print("Files by pressure:")
-        for name, pressure in session.files_by_pressure(0.0):
-            if pressure >= 0.8:
+        print("Files by pressure (relative tiers):")
+        for i, (name, pressure) in enumerate(files_sorted):
+            if i < hot_count:
                 tier = '🔥'
-            elif pressure >= 0.5:
+            elif i < hot_count + warm_count:
                 tier = '⭐'
-            elif pressure >= 0.2:
-                tier = '📋'
             else:
                 tier = '❄️'
             print(f"  {tier} {pressure:.2f} {name}")
@@ -371,7 +374,7 @@ def main() -> None:
     parser.add_argument(
         '--version', '-V',
         action='version',
-        version='%(prog)s 0.3.2'
+        version='%(prog)s 0.3.3'
     )
     
     subparsers = parser.add_subparsers(dest='command', required=True)

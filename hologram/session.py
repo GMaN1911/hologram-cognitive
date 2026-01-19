@@ -222,20 +222,21 @@ class Session:
         result = _process_turn(self._system, message)
         context = _get_context(self._system)
 
-        # Categorize files by pressure tier
-        hot, warm, cold = [], [], []
-        for name, cf in self._system.files.items():
-            if cf.raw_pressure >= 0.8:
-                hot.append(name)
-            elif cf.raw_pressure >= 0.5:
-                warm.append(name)
-            else:
-                cold.append(name)
+        # Categorize files by RELATIVE pressure tier (top N by pressure)
+        # This aligns with injection format and scales with any file count
+        all_files_sorted = sorted(
+            self._system.files.items(),
+            key=lambda x: x[1].raw_pressure,
+            reverse=True
+        )
 
-        # Sort by pressure within each tier
-        hot = sorted(hot, key=lambda n: -self._system.files[n].raw_pressure)
-        warm = sorted(warm, key=lambda n: -self._system.files[n].raw_pressure)
-        cold = sorted(cold, key=lambda n: -self._system.files[n].raw_pressure)
+        # Relative tier sizes (same as injection)
+        hot_count = min(5, len(all_files_sorted))
+        warm_count = min(10, max(0, len(all_files_sorted) - hot_count))
+
+        hot = [name for name, _ in all_files_sorted[:hot_count]]
+        warm = [name for name, _ in all_files_sorted[hot_count:hot_count + warm_count]]
+        cold = [name for name, _ in all_files_sorted[hot_count + warm_count:]]
 
         # v0.3.0 - Compute next turn state
         next_state = None
