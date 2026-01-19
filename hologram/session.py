@@ -306,8 +306,8 @@ class Session:
         """
         Format context for injection into prompt.
 
-        Converts the raw context dict into a formatted string suitable
-        for including in an LLM prompt.
+        Uses RELATIVE tiers based on pressure ranking (top N = HOT, next M = WARM).
+        This scales properly regardless of file count or conservation budget.
 
         Files with '<!-- WARM CONTEXT ENDS ABOVE THIS LINE -->' markers
         will only have their summary (above the marker) injected for HOT,
@@ -328,32 +328,44 @@ class Session:
                 return cf.content[:3000] + "\n\n... (truncated, use Read for full content)"
             return cf.content
 
-        # Handle dict format from get_context
-        if isinstance(context, dict):
-            parts = []
+        # Use RELATIVE tiers: sort all files by pressure and take top N
+        # This scales properly with any number of files
+        all_files = sorted(
+            self._system.files.values(),
+            key=lambda f: f.raw_pressure,
+            reverse=True
+        )
 
-            if 'HOT' in context and context['HOT']:
-                parts.append("=== ACTIVE MEMORY ===\n")
-                for cf in context['HOT'][:5]:  # Limit to top 5
-                    hot_content = get_hot_content(cf)
-                    parts.append(f"## {cf.path}\n{hot_content}\n")
+        # Relative tier sizes (configurable)
+        hot_count = min(5, len(all_files))
+        warm_count = min(10, max(0, len(all_files) - hot_count))
 
-            if 'WARM' in context and context['WARM']:
-                parts.append("\n=== RELATED CONTEXT ===\n")
-                for cf in context['WARM'][:5]:  # Limit to top 5
-                    # Headers only for warm files
-                    lines = cf.content.split('\n')
-                    headers = [l for l in lines if l.startswith('#')]
-                    parts.append(f"## {cf.path}\n" + '\n'.join(headers[:5]) + "\n")
+        hot_files = all_files[:hot_count]
+        warm_files = all_files[hot_count:hot_count + warm_count]
+        cold_files = all_files[hot_count + warm_count:]
 
-            if 'COLD' in context and context['COLD']:
-                parts.append("\n=== AVAILABLE (inactive) ===\n")
-                cold_names = [cf.path for cf in context['COLD'][:10]]
-                parts.append(', '.join(cold_names) + "\n")
+        parts = []
 
-            return '\n'.join(parts)
+        if hot_files:
+            parts.append("=== ACTIVE MEMORY ===\n")
+            for cf in hot_files:
+                hot_content = get_hot_content(cf)
+                parts.append(f"## {cf.path}\n{hot_content}\n")
 
-        return str(context)
+        if warm_files:
+            parts.append("\n=== RELATED CONTEXT ===\n")
+            for cf in warm_files:
+                # Headers only for warm files
+                lines = cf.content.split('\n')
+                headers = [l for l in lines if l.startswith('#')]
+                parts.append(f"## {cf.path}\n" + '\n'.join(headers[:5]) + "\n")
+
+        if cold_files:
+            parts.append("\n=== AVAILABLE (inactive) ===\n")
+            cold_names = [cf.path for cf in cold_files[:10]]
+            parts.append(', '.join(cold_names) + "\n")
+
+        return '\n'.join(parts)
     
     def note(
         self, 

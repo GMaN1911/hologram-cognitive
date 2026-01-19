@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hologram-cognitive"
-version = "0.3.1"
+version = "0.3.2"
 description = "Pressure-based context routing with attention basins and lighthouse resurrection for LLMs"
 readme = "README.md"
 license = "MIT"

@@ -26,7 +26,7 @@ Author: Garret Sutherland <gsutherland@mirrorethic.com>
 License: MIT
 """
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __author__ = "Garret Sutherland"
 __email__ = "gsutherland@mirrorethic.com"
 
@@ -37,6 +37,7 @@ from .pressure import (
     PressureConfig,
     compute_basin_depth,
     compute_effective_decay,
+    compute_effective_budget,
     update_basin_state,
 )
 from .dag import EdgeDiscoveryConfig
@@ -88,6 +89,7 @@ __all__ = [
     # Basin dynamics (v0.3.0)
     'compute_basin_depth',
     'compute_effective_decay',
+    'compute_effective_budget',
     'update_basin_state',
     # Turn state (v0.3.0)
     'TurnState',

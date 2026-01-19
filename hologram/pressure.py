@@ -43,7 +43,9 @@ class PressureConfig:
 
     # Conservation
     enable_conservation: bool = True    # If true, boosting drains from others
-    total_pressure_budget: float = 10.0 # Total pressure in system (if conserved)
+    total_pressure_budget: float = 10.0 # Base budget (scales with file count if dynamic)
+    dynamic_budget: bool = True         # Scale budget with file count
+    budget_per_file: float = 0.5        # Budget contribution per file (dynamic mode)
 
     # Thresholds
     hot_propagates: bool = True         # Only HOT files propagate
@@ -372,6 +374,37 @@ def apply_decay(
     return deltas
 
 
+def compute_effective_budget(
+    file_count: int,
+    config: Optional[PressureConfig] = None
+) -> float:
+    """
+    Compute effective pressure budget based on file count.
+
+    With dynamic_budget=True, budget scales with file count to ensure
+    files can reach meaningful pressures (HOT/WARM thresholds) regardless
+    of how many files are in the system.
+
+    Formula: max(base_budget, file_count * budget_per_file)
+
+    Args:
+        file_count: Number of files in the system
+        config: Pressure configuration
+
+    Returns:
+        Effective budget for conservation
+    """
+    if config is None:
+        config = PressureConfig()
+
+    if not config.dynamic_budget:
+        return config.total_pressure_budget
+
+    # Scale budget with file count, but never below base budget
+    dynamic = file_count * config.budget_per_file
+    return max(config.total_pressure_budget, dynamic)
+
+
 def redistribute_pressure(
     files: Dict[str, 'CognitiveFile'],
     config: Optional[PressureConfig] = None
@@ -381,6 +414,9 @@ def redistribute_pressure(
 
     Called after each turn to enforce conservation.
     Properly handles the 1.0 cap by redistributing overflow to other files.
+
+    With dynamic_budget=True, the budget scales with file count so files
+    can reach meaningful pressures even with large file counts.
     """
     if config is None:
         config = PressureConfig()
@@ -391,18 +427,21 @@ def redistribute_pressure(
     if not files:
         return
 
+    # Compute effective budget (may scale with file count)
+    effective_budget = compute_effective_budget(len(files), config)
+
     current_total = sum(f.raw_pressure for f in files.values())
 
     if current_total == 0:
         # Distribute evenly
-        even_pressure = config.total_pressure_budget / len(files)
+        even_pressure = effective_budget / len(files)
         for file in files.values():
             file.raw_pressure = even_pressure
             file.pressure_bucket = quantize_pressure(file.raw_pressure)
         return
 
     # Simple proportional scaling
-    scale = config.total_pressure_budget / current_total
+    scale = effective_budget / current_total
 
     if scale <= 1.0:
         # Scaling down - straightforward, no cap issues

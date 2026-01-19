@@ -371,7 +371,7 @@ def main() -> None:
     parser.add_argument(
         '--version', '-V',
         action='version',
-        version='%(prog)s 0.3.1'
+        version='%(prog)s 0.3.2'
     )
     
     subparsers = parser.add_subparsers(dest='command', required=True)
