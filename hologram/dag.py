@@ -187,8 +187,9 @@ def get_incoming_edges(adjacency: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
     
     for source, targets in adjacency.items():
         for target in targets:
-            if target in incoming:
-                incoming[target].add(source)
+            if target not in incoming:
+                incoming[target] = set()
+            incoming[target].add(source)
     
     return incoming
 
