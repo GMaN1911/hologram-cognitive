@@ -244,7 +244,11 @@ def propagate_pressure(
 
     # BFS from each source with hop tracking
     for source_path in sources:
-        if source_path not in adjacency or not adjacency[source_path]:
+        # Check if source has any outgoing edges (structural or dynamic)
+        has_adj = source_path in adjacency and adjacency[source_path]
+        has_weights = edge_weights and source_path in edge_weights and edge_weights[source_path]
+
+        if not has_adj and not has_weights:
             continue
 
         # BFS: (current_path, hop_distance, accumulated_flow)
@@ -259,7 +263,13 @@ def propagate_pressure(
             if hop >= config.max_propagation_hops:
                 continue
 
-            outgoing = adjacency.get(current, set())
+            # Combine structural edges (adjacency) and dynamic edges (edge_weights keys)
+            outgoing = set()
+            if current in adjacency:
+                outgoing.update(adjacency[current])
+            if edge_weights and current in edge_weights:
+                outgoing.update(edge_weights[current].keys())
+
             if not outgoing:
                 continue
 

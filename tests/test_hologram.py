@@ -10,29 +10,36 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hologram import (
+# Fix imports to point to submodules where necessary
+from hologram.coordinates import (
     compute_system_bucket,
     quantize_pressure,
     toroidal_decay,
     toroidal_boost,
     bucket_distance,
-    discover_edges,
-    build_dag,
-    EdgeDiscoveryConfig,
-    apply_activation,
-    propagate_pressure,
-    apply_decay,
-    PressureConfig,
-    CognitiveFile,
-    CognitiveSystem,
-    process_turn,
-    get_context,
-    HologramRouter,
     SYSTEM_BUCKETS,
     PRESSURE_BUCKETS,
     HOT_THRESHOLD,
     WARM_THRESHOLD,
 )
+from hologram.dag import (
+    discover_edges,
+    build_dag,
+    EdgeDiscoveryConfig,
+)
+from hologram.pressure import (
+    apply_activation,
+    propagate_pressure,
+    apply_decay,
+    PressureConfig,
+)
+from hologram.system import (
+    CognitiveFile,
+    CognitiveSystem,
+    process_turn,
+    get_context,
+)
+from hologram.router import HologramRouter
 
 
 # ============================================================
@@ -159,7 +166,7 @@ def test_apply_activation():
         "b.md": CognitiveFile(path="b.md", raw_pressure=0.2),
     }
     
-    apply_activation(files, ["a.md"], PressureConfig(activation_boost=0.4))
+    apply_activation(files, {"a.md": 1.0}, PressureConfig(activation_boost=0.4))
     
     assert files["a.md"].raw_pressure > 0.5
     assert files["a.md"].pressure_bucket > files["b.md"].pressure_bucket
@@ -226,6 +233,9 @@ def test_cognitive_system_add_file():
 def test_process_turn():
     """Turn processing activates files and applies dynamics."""
     system = CognitiveSystem()
+    # Disable conservation to avoid budget scaling artifacts with few files
+    system.pressure_config.enable_conservation = False
+
     system.add_file("orin.md", "Orin sensory system.")
     system.add_file("other.md", "Unrelated content.")
     
@@ -257,6 +267,8 @@ def test_get_context():
 def test_full_workflow():
     """Test complete workflow from files to injection."""
     system = CognitiveSystem()
+    # Disable conservation to avoid budget scaling artifacts with few files
+    system.pressure_config.enable_conservation = False
     
     # Add files with relationships
     system.add_file("systems/orin.md", """

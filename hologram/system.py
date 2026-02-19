@@ -163,6 +163,7 @@ class CognitiveSystem:
     # DAG
     adjacency: Dict[str, Set[str]] = field(default_factory=dict)
     edge_weights: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    dynamic_weights: Dict[str, Dict[str, float]] = field(default_factory=dict)
     
     # State
     current_turn: int = 0
@@ -303,6 +304,54 @@ class CognitiveSystem:
         # Save to cache for next time
         if cache_path:
             self._save_dag_cache(cache_path)
+
+    def update_dynamic_weights(self, activated: List[str], learning_rate: float = 0.1, max_weight: float = 2.0):
+        """
+        Update dynamic weights based on co-activation.
+
+        Files activated together strengthen their connection.
+        """
+        if len(activated) < 2:
+            return
+
+        for i in range(len(activated)):
+            source = activated[i]
+            for j in range(len(activated)):
+                if i == j:
+                    continue
+                target = activated[j]
+
+                # Initialize source dict if not present
+                if source not in self.dynamic_weights:
+                    self.dynamic_weights[source] = {}
+
+                # Increment weight
+                current = self.dynamic_weights[source].get(target, 0.0)
+                new_weight = min(max_weight, current + learning_rate)
+                self.dynamic_weights[source][target] = new_weight
+
+    def get_effective_weights(self) -> Dict[str, Dict[str, float]]:
+        """
+        Get effective edge weights (static + dynamic).
+
+        Dynamic weights boost static weights or create new edges.
+        """
+        # Start with static weights (deep copy to avoid modifying original)
+        effective = {}
+        for src, targets in self.edge_weights.items():
+            effective[src] = targets.copy()
+
+        # Merge dynamic weights
+        for source, targets in self.dynamic_weights.items():
+            if source not in effective:
+                effective[source] = {}
+
+            for target, weight in targets.items():
+                # Add to existing static weight or create new edge
+                static = effective[source].get(target, 0.0)
+                effective[source][target] = static + weight
+
+        return effective
     
     def find_activated(self, query: str) -> Dict[str, float]:
         """
@@ -361,6 +410,7 @@ class CognitiveSystem:
         state = {
             'current_turn': self.current_turn,
             'files': {p: f.to_dict() for p, f in self.files.items()},
+            'dynamic_weights': self.dynamic_weights,
         }
         with open(filepath, 'w') as f:
             json.dump(state, f, indent=2)
@@ -377,6 +427,7 @@ class CognitiveSystem:
             state = json.load(f)
         
         self.current_turn = state.get('current_turn', 0)
+        self.dynamic_weights = state.get('dynamic_weights', {})
         
         for path, file_data in state.get('files', {}).items():
             content = ""
@@ -444,6 +495,9 @@ def process_turn(
             system.files[path].last_activated = system.current_turn
             system.files[path].activation_count += 1
 
+    # Update dynamic weights (self-learning)
+    system.update_dynamic_weights(list(activated_scores.keys()))
+
     # Apply pressure dynamics with scores
     apply_activation(system.files, activated_scores, system.pressure_config)
     
@@ -454,7 +508,7 @@ def process_turn(
     propagate_pressure(
         system.files,
         system.adjacency,
-        system.edge_weights,
+        system.get_effective_weights(),
         system.pressure_config
     )
     
