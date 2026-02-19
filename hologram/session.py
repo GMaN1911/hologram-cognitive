@@ -149,7 +149,33 @@ class Session:
         # Load turn state after router init
         if self._enable_turn_state:
             self._turn_state = load_turn_state(self.claude_dir)
-    
+
+    def _safe_path(self, *parts: str) -> Path:
+        """
+        Safely join path parts and ensure the result is within claude_dir.
+
+        Args:
+            *parts: Path parts to join
+
+        Returns:
+            Resolved Path object
+
+        Raises:
+            ValueError: If the resulting path is outside claude_dir
+        """
+        # Join parts and resolve to absolute path
+        path = self.claude_dir.joinpath(*parts).resolve()
+
+        try:
+            # is_relative_to ensures the path is under claude_dir
+            if not path.is_relative_to(self.claude_dir):
+                raise ValueError(f"Path traversal detected: {path} is outside {self.claude_dir}")
+        except ValueError:
+            # Handle cases where path is on a different drive or other issues
+            raise ValueError(f"Path traversal detected: {path} is outside {self.claude_dir}")
+
+        return path
+
     def _load_memory_config(self) -> None:
         """Load configuration from MEMORY.md if present."""
         memory_file = self.claude_dir / 'MEMORY.md'
@@ -393,10 +419,11 @@ class Session:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')[:48] or 'note'
         
-        notes_dir = self.claude_dir / subdir
+        # Safely resolve subdirectory and final path
+        notes_dir = self._safe_path(subdir)
         notes_dir.mkdir(parents=True, exist_ok=True)
         
-        path = notes_dir / f"{ts}_{slug}.md"
+        path = self._safe_path(subdir, f"{ts}_{slug}.md")
         
         content_parts = [
             f"# {title}",
@@ -438,7 +465,7 @@ class Session:
         Returns:
             Path to the anchor file
         """
-        path = self.claude_dir / anchor_file
+        path = self._safe_path(anchor_file)
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         entry = f"\n---\n**{ts}**\n\n{content}\n"
@@ -452,8 +479,9 @@ class Session:
             full_content = f"# Anchors\n\nRolling notes and pinned content.\n{entry}"
             path.write_text(full_content)
         
-        # Update in router
-        self._system.add_file(anchor_file, full_content)
+        # Update in router using relative path
+        rel_path = str(path.relative_to(self.claude_dir))
+        self._system.add_file(rel_path, full_content)
         
         return path
     
