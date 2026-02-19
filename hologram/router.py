@@ -17,6 +17,7 @@ import math
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Optional, Tuple, Any
+from collections import deque
 
 from .system import (
     CognitiveSystem,
@@ -159,22 +160,14 @@ class HologramRouter:
         if file_path in query_hit_paths:
             return 0
 
-        visited = set()
-        queue = [(path, 0) for path in query_hit_paths]
-        visited.update(query_hit_paths)
+        visited = set(query_hit_paths)
+        queue = deque([(path, 0) for path in query_hit_paths])
 
         while queue:
-            current, dist = queue.pop(0)
+            current, dist = queue.popleft()
 
-            # Check neighbors (both directions)
-            neighbors = set()
-            neighbors.update(self.system.adjacency.get(current, set()))
-
-            # Incoming edges (use stored incoming_edges, not O(n²) scan)
-            if current in self.system.files:
-                neighbors.update(self.system.files[current].incoming_edges)
-
-            for neighbor in neighbors:
+            # Outgoing edges
+            for neighbor in self.system.adjacency.get(current, set()):
                 if neighbor == file_path:
                     return dist + 1
                 if neighbor not in visited:
@@ -182,6 +175,17 @@ class HologramRouter:
                     # Limit to 3 hops
                     if dist + 1 < 3:
                         queue.append((neighbor, dist + 1))
+
+            # Incoming edges (use stored incoming_edges, not O(n²) scan)
+            if current in self.system.files:
+                for neighbor in self.system.files[current].incoming_edges:
+                    if neighbor == file_path:
+                        return dist + 1
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        # Limit to 3 hops
+                        if dist + 1 < 3:
+                            queue.append((neighbor, dist + 1))
 
         return 999  # Not reachable within 3 hops
 
