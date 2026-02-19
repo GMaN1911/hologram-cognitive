@@ -437,6 +437,79 @@ class CognitiveSystem:
         
         self._rebuild_dag()
 
+    def _identify_activated(
+        self,
+        query: str,
+        custom_activated: Optional[List[str]] = None
+    ) -> Dict[str, float]:
+        """Phase 1: Identify which files are activated and their scores."""
+        if custom_activated is not None:
+            # Custom activation: uniform score of 1.0
+            return {p: 1.0 for p in custom_activated}
+        else:
+            # Query-based activation with variable scores
+            return self.find_activated(query)
+
+    def _update_activation_metadata(self, activated_scores: Dict[str, float]) -> None:
+        """Phase 2: Update activation metadata for files."""
+        for path in activated_scores:
+            if path in self.files:
+                self.files[path].last_activated = self.current_turn
+                self.files[path].activation_count += 1
+
+    def _apply_dynamics(self, activated_scores: Dict[str, float]) -> Set[str]:
+        """Phase 3: Apply pressure dynamics (activation, propagation, decay)."""
+        # Update dynamic weights (self-learning)
+        self.update_dynamic_weights(list(activated_scores.keys()))
+
+        # Apply pressure dynamics with scores
+        apply_activation(self.files, activated_scores, self.pressure_config)
+
+        # Track propagation
+        hot_before = {p for p, f in self.files.items() if f.tier == "HOT"}
+
+        propagate_pressure(
+            self.files,
+            self.adjacency,
+            self.get_effective_weights(),
+            self.pressure_config
+        )
+
+        hot_after = {p for p, f in self.files.items() if f.tier == "HOT"}
+        propagated = hot_after - hot_before - set(activated_scores.keys())
+
+        # Apply decay
+        apply_decay(self.files, self.current_turn, self.pressure_config)
+
+        # Update basin state (v0.3.0) - track consecutive HOT turns for decay resistance
+        update_basin_state(self.files, self.current_turn, self.pressure_config)
+
+        # Enforce conservation every turn
+        redistribute_pressure(self.files, self.pressure_config)
+
+        return propagated
+
+    def _create_turn_record(
+        self,
+        query: str,
+        activated_scores: Dict[str, float],
+        propagated: Set[str]
+    ) -> TurnRecord:
+        """Phase 4: Create record of the turn."""
+        context = get_context(self)
+
+        return TurnRecord(
+            turn=self.current_turn,
+            timestamp=time.time(),
+            query=query,
+            activated=list(activated_scores.keys()),
+            propagated=list(propagated),
+            hot=[f.path for f in context['HOT']],
+            warm=[f.path for f in context['WARM']],
+            cold_count=len(context['COLD']),
+            pressure_stats=get_pressure_stats(self.files),
+        )
+
 
 def get_context(system: CognitiveSystem) -> Dict[str, List[CognitiveFile]]:
     """
@@ -465,11 +538,11 @@ def process_turn(
     """
     Process a single turn.
 
-    1. Find activated files from query (or use custom list)
-    2. Apply activation boost (scaled by match score)
-    3. Propagate pressure along DAG edges
-    4. Apply decay to inactive files
-    5. Record turn history
+    Orchestrates the cognitive cycle:
+    1. Identify activated files
+    2. Update activation metadata
+    3. Apply pressure dynamics (activation, propagation, decay)
+    4. Record turn history
 
     Args:
         system: The cognitive system
@@ -481,68 +554,20 @@ def process_turn(
     """
     system.current_turn += 1
 
-    # Find activated files with scores
-    if custom_activated is not None:
-        # Custom activation: uniform score of 1.0
-        activated_scores = {p: 1.0 for p in custom_activated}
-    else:
-        # Query-based activation with variable scores
-        activated_scores = system.find_activated(query)
+    # 1. Identify activated files
+    activated_scores = system._identify_activated(query, custom_activated)
 
-    # Update activation metadata
-    for path in activated_scores:
-        if path in system.files:
-            system.files[path].last_activated = system.current_turn
-            system.files[path].activation_count += 1
+    # 2. Update metadata
+    system._update_activation_metadata(activated_scores)
 
-    # Update dynamic weights (self-learning)
-    system.update_dynamic_weights(list(activated_scores.keys()))
+    # 3. Apply dynamics
+    propagated = system._apply_dynamics(activated_scores)
 
-    # Apply pressure dynamics with scores
-    apply_activation(system.files, activated_scores, system.pressure_config)
-    
-    # Track propagation
-    propagated = set()
-    hot_before = {p for p, f in system.files.items() if f.tier == "HOT"}
-    
-    propagate_pressure(
-        system.files,
-        system.adjacency,
-        system.get_effective_weights(),
-        system.pressure_config
-    )
-    
-    hot_after = {p for p, f in system.files.items() if f.tier == "HOT"}
-    propagated = hot_after - hot_before - set(activated_scores.keys())
-    
-    # Apply decay
-    apply_decay(system.files, system.current_turn, system.pressure_config)
+    # 4. Record history
+    record = system._create_turn_record(query, activated_scores, propagated)
 
-    # Update basin state (v0.3.0) - track consecutive HOT turns for decay resistance
-    update_basin_state(system.files, system.current_turn, system.pressure_config)
-
-    # Enforce conservation every turn (not just periodically)
-    # This ensures total pressure stays at budget and fixes the "all files HOT" issue
-    redistribute_pressure(system.files, system.pressure_config)
-
-    # Get final context
-    context = get_context(system)
-    
-    # Create record
-    record = TurnRecord(
-        turn=system.current_turn,
-        timestamp=time.time(),
-        query=query,
-        activated=list(activated_scores.keys()),
-        propagated=list(propagated),
-        hot=[f.path for f in context['HOT']],
-        warm=[f.path for f in context['WARM']],
-        cold_count=len(context['COLD']),
-        pressure_stats=get_pressure_stats(system.files),
-    )
-    
     system.history.append(record)
-    
+
     return record
 
 
