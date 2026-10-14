@@ -10,29 +10,35 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hologram import (
+from hologram.coordinates import (
     compute_system_bucket,
     quantize_pressure,
     toroidal_decay,
     toroidal_boost,
     bucket_distance,
-    discover_edges,
-    build_dag,
-    EdgeDiscoveryConfig,
-    apply_activation,
-    propagate_pressure,
-    apply_decay,
-    PressureConfig,
-    CognitiveFile,
-    CognitiveSystem,
-    process_turn,
-    get_context,
-    HologramRouter,
     SYSTEM_BUCKETS,
     PRESSURE_BUCKETS,
     HOT_THRESHOLD,
     WARM_THRESHOLD,
 )
+from hologram.dag import (
+    discover_edges,
+    build_dag,
+    EdgeDiscoveryConfig,
+)
+from hologram.pressure import (
+    apply_activation,
+    propagate_pressure,
+    apply_decay,
+    PressureConfig,
+)
+from hologram.system import (
+    CognitiveFile,
+    CognitiveSystem,
+    process_turn,
+    get_context,
+)
+from hologram.router import HologramRouter
 
 
 # ============================================================
