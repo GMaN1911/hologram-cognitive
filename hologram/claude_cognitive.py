@@ -36,21 +36,25 @@ class HologramBackend:
         self,
         claude_dir: str = '.claude',
         auto_save: bool = True,
-        max_injection_chars: int = 25000
+        max_injection_chars: int = 25000,
+        state_dir: str = None,
     ):
         """
         Initialize hologram backend for claude-cognitive.
 
         Args:
-            claude_dir: Path to .claude directory
+            claude_dir: Directory to SCAN forward for files (project root, or .claude)
             auto_save: Automatically save state after each turn
             max_injection_chars: Maximum characters for injection
+            state_dir: Where to keep state (default: claude_dir). Pass <project>/.hologram
+                to scan a project root forward while keeping state out of the tree.
         """
         self.claude_dir = Path(claude_dir)
+        self.state_dir = Path(state_dir) if state_dir else self.claude_dir
         self.auto_save = auto_save
         self.max_injection_chars = max_injection_chars
-        self.session = get_session(claude_dir)
-        self.history_file = self.claude_dir / 'hologram_history.jsonl'
+        self.session = get_session(claude_dir, state_dir=state_dir)
+        self.history_file = self.state_dir / 'hologram_history.jsonl'
 
     def route_message(
         self,

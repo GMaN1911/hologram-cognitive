@@ -1,0 +1,3 @@
+name: hologram
+version: 0.5.1
+description: "Hologram Pro — learned file routing, the project's causal graph, and turn reinforcement as the agent's memory. State stays in each project's .hologram/."

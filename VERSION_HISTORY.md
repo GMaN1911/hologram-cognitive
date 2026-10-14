@@ -1,6 +1,34 @@
 # Hologram Cognitive - Version History
 
-## v0.1.1 (2026-01-12) - Current Release
+## v0.4.0 (2026-10-14) - Current Release
+
+The routing engine of Hologram Pro 0.5, released free under MIT. Built from the same source as
+Hologram Pro, with the Pro features left out.
+
+- **Routes your project's own files**, with state in `your-project/.hologram/` (0.3 routed a
+  `.claude/` notes directory; that directory is left as it was and is no longer routed).
+- **Activation**: at most 8 files per prompt; stop-words and words found in most files ignored;
+  whole-word matches; rarer words weigh more.
+- **A fixed pressure budget of 10**, taken equally from every file, so the leaders keep their lead.
+  Replaces 0.3's per-file dynamic budget, which kept every file lukewarm as projects grew.
+- **A working set that is never empty**: the top 6 by pressure, the next 10 by name, and up to 3
+  recently modified docs when too few files hold pressure. Replaces absolute hot/warm thresholds.
+- **Learning from use**: the files a turn actually read or edited are reinforced; each file's boost
+  and decay adapt to how often it is used when activated.
+- **Fixtures and test data** are indexed but demoted unless the prompt names them.
+- **Harnesses**: `hologram install claude-code` (a prompt hook and an end-of-turn hook) and
+  `hologram install hermes` (Hologram as Hermes Agent's memory provider, with a warm worker so a
+  prompt after the first costs tens of milliseconds); `hologram uninstall` reverses both.
+- Off by default (still available as `PressureConfig` options for experiments): lighthouse
+  resurrection and the dynamic budget, both measured to flatten the working set.
+- The 0.3 notes commands (`route`, `note`, `pin`, `files`, `state`, `crystallize`, `sessions`,
+  `export`, `import`) still take a notes directory, as in 0.3; the hooks do not use them.
+- Python 3.11 or newer.
+
+Hologram Pro (https://hologram-pro.dev) adds the project's causal graph and guards, project
+memory, the blackboard between sessions, a reranker, and Codex, Grok and Antigravity support.
+
+## v0.1.1 (2026-01-12)
 
 **PyPI:** https://pypi.org/project/hologram-cognitive/0.1.1/
 **Git Tag:** v0.1.1 (commit 6748fc5)

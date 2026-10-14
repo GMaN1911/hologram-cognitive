@@ -123,8 +123,12 @@ class Session:
         instance_id: str = 'default',
         enable_turn_state: bool = True,  # v0.3.0
         auto_crystallize: bool = True,   # v0.3.0
+        state_dir: Optional[str] = None,  # scan claude_dir forward, keep state here
     ):
         self.claude_dir = Path(claude_dir).resolve()
+        # State lives in state_dir when given (e.g. <project>/.hologram); else in claude_dir.
+        self._state_dir_arg = state_dir
+        self.state_dir = Path(state_dir).resolve() if state_dir else self.claude_dir
         self.instance_id = instance_id
         self._router = None
         self._system = None
@@ -163,8 +167,11 @@ class Session:
         """Initialize the router from directory."""
         if not self.claude_dir.exists():
             self.claude_dir.mkdir(parents=True)
-        
-        self._router = create_router_from_directory(str(self.claude_dir))
+
+        self._router = create_router_from_directory(
+            str(self.claude_dir),
+            state_dir=self._state_dir_arg,  # None → legacy (state in claude_dir)
+        )
         self._system = self._router.system
     
     @property
@@ -187,6 +194,28 @@ class Session:
         """Get the current turn state (v0.3.0)."""
         return self._turn_state
     
+    def _load_t3_state(self):
+        """
+        Load T³ adaptive state from t3_file_state.json (v0.4.0).
+
+        Applies per-file learned_decay and learned_boost to CognitiveFile
+        objects before pressure dynamics run. Files without T³ state keep
+        their defaults (matching PressureConfig constants).
+        """
+        t3_path = self.state_dir / 't3_file_state.json'
+        if not t3_path.exists():
+            return
+
+        try:
+            t3_data = json.loads(t3_path.read_text())
+            for path, state in t3_data.items():
+                if path in self._system.files:
+                    f = self._system.files[path]
+                    f.learned_decay = state.get('learned_decay', 0.85)
+                    f.learned_boost = state.get('learned_boost', 0.6)
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
     def turn(self, message: str) -> TurnResult:
         """
         Process a conversation turn.
@@ -200,12 +229,19 @@ class Session:
         - Computes next turn state
         - Tracks attention clusters and tension
 
+        v0.4.0: T³ adaptive dynamics:
+        - Loads per-file learned_decay/learned_boost from t3_file_state.json
+        - Pressure functions use per-file values instead of global constants
+
         Args:
             message: User message to route
 
         Returns:
             TurnResult containing injection text and metadata
         """
+        # v0.4.0 - Load T³ adaptive state before processing
+        self._load_t3_state()
+
         # v0.3.0 - Apply inherited pressure before processing
         if self._enable_turn_state and self._turn_state:
             apply_inherited_pressure(
@@ -368,6 +404,14 @@ class Session:
 
         return '\n'.join(parts)
     
+    def _safe_path(self, *parts: str) -> Path:
+        """The joined path, resolved, refused unless it stays inside the notes directory (a
+        subdir or file name of `../..` or an absolute path cannot write elsewhere)."""
+        path = self.claude_dir.joinpath(*parts).resolve()
+        if not path.is_relative_to(self.claude_dir):
+            raise ValueError(f"Path traversal detected: {path} is outside {self.claude_dir}")
+        return path
+
     def note(
         self, 
         title: str, 
@@ -393,10 +437,10 @@ class Session:
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')[:48] or 'note'
         
-        notes_dir = self.claude_dir / subdir
+        notes_dir = self._safe_path(subdir)
         notes_dir.mkdir(parents=True, exist_ok=True)
-        
-        path = notes_dir / f"{ts}_{slug}.md"
+
+        path = self._safe_path(subdir, f"{ts}_{slug}.md")
         
         content_parts = [
             f"# {title}",
@@ -438,7 +482,7 @@ class Session:
         Returns:
             Path to the anchor file
         """
-        path = self.claude_dir / anchor_file
+        path = self._safe_path(anchor_file)
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         entry = f"\n---\n**{ts}**\n\n{content}\n"
@@ -452,8 +496,8 @@ class Session:
             full_content = f"# Anchors\n\nRolling notes and pinned content.\n{entry}"
             path.write_text(full_content)
         
-        # Update in router
-        self._system.add_file(anchor_file, full_content)
+        # Update in router, under the path relative to the notes directory
+        self._system.add_file(str(path.relative_to(self.claude_dir)), full_content)
         
         return path
     
@@ -464,7 +508,7 @@ class Session:
         Persists the current pressure state and turn history to JSON files
         in the .claude directory.
         """
-        state_file = self.claude_dir / 'hologram_state.json'
+        state_file = self.state_dir / 'hologram_state.json'
         self._system.save_state(str(state_file))
     
     def status(self) -> Dict[str, Any]:
@@ -584,24 +628,28 @@ class Session:
 _default_session: Optional[Session] = None
 
 
-def get_session(claude_dir: str = '.claude') -> Session:
+def get_session(claude_dir: str = '.claude', state_dir: Optional[str] = None) -> Session:
     """
     Get or create the default session.
-    
-    Reuses existing session if the directory matches.
-    
+
+    Reuses existing session if the directory AND state_dir match.
+
     Args:
-        claude_dir: Path to .claude directory
-        
+        claude_dir: Directory to scan forward (project root, or .claude)
+        state_dir: Where to keep state (default: claude_dir). Pass <project>/.hologram
+            to scan a project root while keeping state out of the tree.
+
     Returns:
         Session instance
     """
     global _default_session
     target = Path(claude_dir).resolve()
-    
-    if _default_session is None or _default_session.claude_dir != target:
-        _default_session = Session(claude_dir)
-    
+    state_target = Path(state_dir).resolve() if state_dir else target
+
+    if (_default_session is None or _default_session.claude_dir != target
+            or _default_session.state_dir != state_target):
+        _default_session = Session(claude_dir, state_dir=state_dir)
+
     return _default_session
 
 

@@ -9,9 +9,15 @@ The graph structure IS the co-activation network, discovered not configured.
 """
 
 import re
-from dataclasses import dataclass, field
-from typing import Dict, Set, List, Optional, Callable
+import hashlib
+from dataclasses import dataclass, field, asdict
+from typing import Dict, Set, List, Optional, Callable, Pattern
 from pathlib import Path
+
+# The only non-ASCII characters CPython's re.IGNORECASE matches to an ASCII letter or digit
+# (enumerated over every code point on 3.12): İ ı ſ K. Content free of them can skip a stem regex
+# whenever the lowercased stem is absent — the regex needs that literal to match.
+_IGNORECASE_ASCII_EXTRAS = ('İ', 'ı', 'ſ', 'K')
 
 
 @dataclass
@@ -149,27 +155,149 @@ def discover_edges(
     return edges
 
 
+@dataclass
+class TargetFeatures:
+    """Everything discover_edges/get_edge_weight derive from a target path, computed once per
+    target instead of once per (source, target) pair."""
+    path: str
+    lower: str
+    stem_lower: str
+    stem_ascii: bool
+    stem_long: bool
+    excluded: bool
+    part_needles: List[str]
+    keyword_needles: Optional[List[str]]
+    import_re: Pattern
+    link_re: Pattern
+    parent: str
+
+
+def prepare_targets(
+    paths: List[str],
+    config: Optional[EdgeDiscoveryConfig] = None
+) -> List[TargetFeatures]:
+    """Per-target features for discover_edges_prepared, in the order of `paths`."""
+    if config is None:
+        config = EdgeDiscoveryConfig()
+    generic = config.exclude_generic_terms
+    out = []
+    for target_path in paths:
+        filename = Path(target_path).stem
+        path_parts = target_path.replace('.md', '').replace('.py', '').split('/')
+        significant = [
+            p.lower() for p in re.split(r'[-_]', filename)
+            if len(p) >= config.min_part_length and p.lower() not in generic
+        ]
+        out.append(TargetFeatures(
+            path=target_path,
+            lower=target_path.lower(),
+            stem_lower=filename.lower(),
+            stem_ascii=filename.isascii(),
+            stem_long=len(filename) >= config.min_part_length,
+            excluded=any(re.search(pat, target_path) for pat in config.exclude_patterns),
+            part_needles=[p.lower() for p in path_parts
+                          if p.lower() not in generic and len(p) >= config.min_part_length],
+            keyword_needles=significant if len(significant) >= 2 else None,
+            import_re=re.compile(rf'(?:from|import)\s+[\w.]*{re.escape(filename)}', re.IGNORECASE),
+            link_re=re.compile(rf'\[.*?\]\([^)]*{re.escape(filename)}[^)]*\)', re.IGNORECASE),
+            parent=str(Path(target_path).parent),
+        ))
+    return out
+
+
+def discover_edges_prepared(
+    source_path: str,
+    source_content: str,
+    targets: List[TargetFeatures],
+    config: Optional[EdgeDiscoveryConfig] = None,
+    content_lower: Optional[str] = None,
+) -> Set[str]:
+    """discover_edges over prepared targets — identical edge set, no per-pair re-derivation."""
+    if config is None:
+        config = EdgeDiscoveryConfig()
+    if content_lower is None:
+        content_lower = source_content.lower()
+    fold_safe = not any(ch in source_content for ch in _IGNORECASE_ASCII_EXTRAS)
+    custom_hit = any(re.search(p, source_content, re.IGNORECASE) for p in config.custom_patterns)
+    use_regex = config.use_import_statements or config.use_markdown_links
+
+    edges = set()
+    for t in targets:
+        if t.path == source_path or t.excluded:
+            continue
+        if config.use_path_matching and t.lower in content_lower:
+            edges.add(t.path)
+            continue
+        if config.use_filename_matching and t.stem_long and t.stem_lower in content_lower:
+            edges.add(t.path)
+            continue
+        if config.use_partial_path and any(n in content_lower for n in t.part_needles):
+            edges.add(t.path)
+            continue
+        if (config.use_keyword_parts and t.keyword_needles is not None
+                and all(n in content_lower for n in t.keyword_needles)):
+            edges.add(t.path)
+            continue
+        if use_regex and not (fold_safe and t.stem_ascii and t.stem_lower not in content_lower):
+            if config.use_import_statements and t.import_re.search(source_content):
+                edges.add(t.path)
+                continue
+            if config.use_markdown_links and t.link_re.search(source_content):
+                edges.add(t.path)
+                continue
+        if custom_hit:
+            edges.add(t.path)
+    return edges
+
+
+def edge_weights_prepared(
+    source_path: str,
+    content_lower: str,
+    targets: List[TargetFeatures],
+    base_weight: float = 1.0,
+) -> Dict[str, float]:
+    """get_edge_weight for each target in `targets`, with the source lowercased once."""
+    source_dir = str(Path(source_path).parent)
+    weights = {}
+    for t in targets:
+        weight = base_weight
+        if t.lower in content_lower:
+            weight += 0.5
+        mention_count = content_lower.count(t.stem_lower)
+        weight += min(mention_count * 0.1, 0.5)
+        if source_dir == t.parent:
+            weight += 0.3
+        weights[t.path] = weight
+    return weights
+
+
+def config_fingerprint(config: Optional[EdgeDiscoveryConfig] = None) -> str:
+    """Stable identity of a discovery config — edges cached under one config are invalid under another."""
+    if config is None:
+        config = EdgeDiscoveryConfig()
+    return hashlib.sha256(repr(sorted(asdict(config).items())).encode()).hexdigest()[:16]
+
+
 def build_dag(
     files: Dict[str, str],
     config: Optional[EdgeDiscoveryConfig] = None
 ) -> Dict[str, Set[str]]:
     """
     Build complete DAG from file contents.
-    
+
     Args:
         files: Dict mapping path → content
         config: Discovery configuration
-    
+
     Returns:
         Adjacency dict: source → set of targets
     """
-    all_paths = list(files.keys())
+    targets = prepare_targets(list(files.keys()), config)
     adjacency = {}
-    
+
     for path, content in files.items():
-        edges = discover_edges(path, content, all_paths, config)
-        adjacency[path] = edges
-    
+        adjacency[path] = discover_edges_prepared(path, content, targets, config)
+
     return adjacency
 
 
@@ -246,16 +374,16 @@ def compute_edge_weights(
         Nested dict: source → target → weight
     """
     weights = {}
-    
+    features: Dict[str, TargetFeatures] = {}
+
     for source, targets in adjacency.items():
-        weights[source] = {}
-        content = files.get(source, "")
-        
-        for target in targets:
-            weights[source][target] = get_edge_weight(
-                source, target, content
-            )
-    
+        missing = [t for t in targets if t not in features]
+        for f in prepare_targets(missing):
+            features[f.path] = f
+        content_lower = files.get(source, "").lower()
+        weights[source] = edge_weights_prepared(
+            source, content_lower, [features[t] for t in targets])
+
     return weights
 
 

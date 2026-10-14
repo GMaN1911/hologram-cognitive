@@ -26,7 +26,8 @@ Author: Garret Sutherland <gsutherland@mirrorethic.com>
 License: MIT
 """
 
-__version__ = "0.3.3"
+from .edition import version as _version
+__version__ = _version()
 __author__ = "Garret Sutherland"
 __email__ = "gsutherland@mirrorethic.com"
 
@@ -35,12 +36,34 @@ from .router import HologramRouter, create_router_from_directory
 from .system import CognitiveSystem, CognitiveFile, process_turn, get_context
 from .pressure import (
     PressureConfig,
+    apply_activation,
+    propagate_pressure,
+    apply_decay,
     compute_basin_depth,
     compute_effective_decay,
     compute_effective_budget,
     update_basin_state,
 )
-from .dag import EdgeDiscoveryConfig
+from .coordinates import (
+    SYSTEM_BUCKETS,
+    PRESSURE_BUCKETS,
+    HOT_THRESHOLD,
+    WARM_THRESHOLD,
+    compute_system_bucket,
+    quantize_pressure,
+    toroidal_decay,
+    toroidal_boost,
+    bucket_distance,
+)
+from .dag import EdgeDiscoveryConfig, discover_edges, build_dag
+from .code_dag import (
+    CodeSymbol,
+    FileSymbols,
+    SymbolGraph,
+    build_symbol_graph,
+    build_bridge_edges,
+    parse_python_file,
+)
 from .turn_state import (
     TurnState,
     TurnStateConfig,
@@ -69,6 +92,13 @@ try:
 except ImportError:
     _INTEGRATIONS_AVAILABLE = False
 
+# v0.4.0: Dream engine (idle-time self-perturbation)
+try:
+    from .dream import DreamEngine, DreamConfig, DreamType
+    _DREAM_AVAILABLE = True
+except ImportError:
+    _DREAM_AVAILABLE = False
+
 __all__ = [
     # High-level API
     'Session',
@@ -86,6 +116,13 @@ __all__ = [
     # Configuration
     'PressureConfig',
     'EdgeDiscoveryConfig',
+    # Code DAG (v0.5.0)
+    'CodeSymbol',
+    'FileSymbols',
+    'SymbolGraph',
+    'build_symbol_graph',
+    'build_bridge_edges',
+    'parse_python_file',
     # Basin dynamics (v0.3.0)
     'compute_basin_depth',
     'compute_effective_decay',
@@ -110,4 +147,8 @@ __all__ = [
     # Integration modules (if available)
     'hooks',
     'claude_cognitive',
+    # v0.4.0: Dream engine
+    'DreamEngine',
+    'DreamConfig',
+    'DreamType',
 ]

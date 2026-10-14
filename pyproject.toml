@@ -4,78 +4,44 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hologram-cognitive"
-version = "0.3.3"
-description = "Pressure-based context routing with attention basins and lighthouse resurrection for LLMs"
+version = "0.4.0"
+description = "The working set of files for every prompt: Hologram's routing engine for coding agents (Claude Code hooks, Hermes Agent memory provider). Free and MIT; Hologram Pro adds the project graph, guards, memory and the blackboard."
 readme = "README.md"
 license = "MIT"
 authors = [
     { name = "Garret Sutherland", email = "gsutherland@mirrorethic.com" }
 ]
-keywords = [
-    "llm",
-    "context",
-    "memory",
-    "routing",
-    "claude",
-    "ai",
-    "cognitive",
-    "pressure",
-    "dag",
-    "attention",
-    "basin",
-    "crystallization"
-]
+keywords = ["llm", "context", "routing", "claude-code", "hermes-agent", "coding-agents", "working-set"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-requires-python = ">=3.9"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "black>=23.0",
-    "ruff>=0.1.0",
-]
+dev = ["pytest>=7.0"]
 
 [project.scripts]
 hologram = "hologram.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/mirrorethic/hologram-cognitive"
-Documentation = "https://github.com/mirrorethic/hologram-cognitive#readme"
-Repository = "https://github.com/mirrorethic/hologram-cognitive"
-Issues = "https://github.com/mirrorethic/hologram-cognitive/issues"
+Homepage = "https://hologram-pro.dev"
+Repository = "https://github.com/GMaN1911/hologram-cognitive"
+"Hologram Pro" = "https://hologram-pro.dev"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hologram"]
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-    "tests/",
-    "test_env/",
-    "build_env/",
-    "venv/",
-    ".pytest_cache/",
-    "__pycache__/",
-    "*.pyc",
-]
-
-[tool.black]
-line-length = 100
-target-version = ["py39", "py310", "py311", "py312"]
-
-[tool.ruff]
-line-length = 100
-select = ["E", "F", "I", "N", "W"]
-ignore = ["E501"]
+include = ["hologram", "tests", "README.md", "LICENSE", "VERSION_HISTORY.md", "pyproject.toml"]

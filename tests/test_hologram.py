@@ -159,7 +159,7 @@ def test_apply_activation():
         "b.md": CognitiveFile(path="b.md", raw_pressure=0.2),
     }
     
-    apply_activation(files, ["a.md"], PressureConfig(activation_boost=0.4))
+    apply_activation(files, {"a.md": 1.0}, PressureConfig(activation_boost=0.4))
     
     assert files["a.md"].raw_pressure > 0.5
     assert files["a.md"].pressure_bucket > files["b.md"].pressure_bucket
